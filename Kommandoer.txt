@@ -1,0 +1,3 @@
+For å starte server: npm run dev
+Selve frontend hovedkoden ligger under src -> app -> page.tsx
+npx @anthropic-ai/claude-code

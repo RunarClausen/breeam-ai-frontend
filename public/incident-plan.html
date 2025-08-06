@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GDPR Incident Response Plan - INTERN</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
+        }
+        .header {
+            background-color: #dc2626;
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        h1 {
+            color: #dc2626;
+            border-bottom: 2px solid #dc2626;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #b91c1c;
+            margin-top: 30px;
+        }
+        h3 {
+            color: #7f1d1d;
+        }
+        .urgent {
+            background-color: #fef2f2;
+            padding: 15px;
+            border-left: 4px solid #dc2626;
+            margin: 20px 0;
+        }
+        .checklist {
+            background-color: #f0f9ff;
+            padding: 15px;
+            border-left: 4px solid #0284c7;
+            margin: 20px 0;
+        }
+        .contact-box {
+            background-color: #fffbeb;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 2px solid #f59e0b;
+        }
+        ul {
+            padding-left: 20px;
+        }
+        .timeline {
+            font-weight: bold;
+            color: #dc2626;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #d1d5db;
+            padding: 8px;
+            text-align: left;
+            font-size: 14px;
+        }
+        th {
+            background-color: #f3f4f6;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1 style="color: white; border: none; margin: 0;">🚨 GDPR INCIDENT RESPONSE PLAN 🚨</h1>
+        <p style="margin: 10px 0 0 0;"><strong>KONFIDENSIELT - KUN FOR INTERNT BRUK</strong></p>
+        <p style="margin: 5px 0 0 0;">Envia AS / BREEAM-AI</p>
+    </div>
+
+    <div class="urgent">
+        <h2>⚠️ KRITISK: Les dette først ved databrudd!</h2>
+        <p><strong>Datatilsynet må varsles innen 72 timer!</strong><br>
+        Portal: <a href="https://www.datatilsynet.no/" target="_blank">datatilsynet.no</a><br>
+        E-post: postkasse@datatilsynet.no</p>
+    </div>
+
+    <h2>1. Definisjon av personvernbrudd</h2>
+    <p>Et personvernbrudd kan være:</p>
+    <ul>
+        <li>Uautorisert tilgang til opplastede dokumenter</li>
+        <li>Feil i automatisk sletting av brukerdata</li>
+        <li>Teknisk feil som eksponerer personopplysninger</li>
+        <li>Cyberangrep eller datainnbrudd</li>
+        <li>Utilsiktet deling av data med tredjeparter</li>
+    </ul>
+
+    <h2>2. <span class="timeline">Umiddelbare tiltak (0-1 time)</span></h2>
+
+    <div class="checklist">
+        <h3>✅ Identifiser og stopp bruddet</h3>
+        <ul>
+            <li>☐ Identifiser omfanget av bruddet</li>
+            <li>☐ Stopp videre dataeksponering umiddelbart</li>
+            <li>☐ Sikre bevis og loggdata</li>
+            <li>☐ Varsle teknisk team hvis relevant</li>
+        </ul>
+
+        <h3>✅ Dokumenter hendelsen</h3>
+        <ul>
+            <li>☐ Tidspunkt for oppdagelse</li>
+            <li>☐ Antatt tidspunkt for brudd</li>
+            <li>☐ Hvilke personopplysninger er berørt</li>
+            <li>☐ Antall berørte personer (hvis kjent)</li>
+            <li>☐ Årsak til bruddet</li>
+        </ul>
+    </div>
+
+    <h2>3. <span class="timeline">Vurdering og analyse (1-6 timer)</span></h2>
+
+    <h3>✅ Risikovurdering</h3>
+    <p>Vurder om bruddet medfører <strong>høy risiko</strong> for enkeltpersoner:</p>
+
+    <table>
+        <tr>
+            <th>Høy risiko hvis:</th>
+            <th>Lav risiko hvis:</th>
+        </tr>
+        <tr>
+            <td>
+                • Sensitive personopplysninger (helse, økonomi)<br>
+                • Store mengder data<br>
+                • Identitetstyveri-potensial<br>
+                • Offentlig eksponering
+            </td>
+            <td>
+                • Begrenset datamengde<br>
+                • Kun kontaktinformasjon<br>
+                • Intern feil uten ekstern tilgang
+            </td>
+        </tr>
+    </table>
+
+    <h2>4. <span class="timeline">Varslinger</span></h2>
+
+    <h3>📢 Datatilsynet (innen 72 timer)</h3>
+    <p><strong>Når:</strong> Alltid, med mindre bruddet "neppe medfører risiko"</p>
+
+    <div class="contact-box">
+        <h4>🔗 Hvordan varsle Datatilsynet:</h4>
+        <p><strong>Portal:</strong> <a href="https://www.datatilsynet.no/" target="_blank">datatilsynet.no</a><br>
+        <strong>E-post:</strong> postkasse@datatilsynet.no<br>
+        <strong>Telefon:</strong> 22 39 69 00</p>
+
+        <h4>📋 Informasjon å oppgi:</h4>
+        <ul>
+            <li>☐ Beskrivelse av personvernbruddet</li>
+            <li>☐ Kategorier og antall registrerte som er berørt</li>
+            <li>☐ Kategorier og antall personopplysninger som er berørt</li>
+            <li>☐ Sannsynlige konsekvenser av bruddet</li>
+            <li>☐ Tiltak som er iverksatt eller planlagt</li>
+        </ul>
+    </div>
+
+    <h3>📢 Berørte personer (uten ugrunnet opphold)</h3>
+    <p><strong>Når:</strong> Ved høy risiko for rettigheter og friheter</p>
+
+    <div class="checklist">
+        <h4>Mal for brukervarsel:</h4>
+        <div style="background-color: #f9fafb; padding: 15px; border-radius: 5px; font-family: monospace; font-size: 14px;">
+Emne: Viktig informasjon om dine data hos BREEAM-AI
+
+Vi varsler deg om en hendelse som kan ha påvirket dine personopplysninger hos BREEAM-AI.
+
+Hva skjedde: [Kort beskrivelse]
+Når: [Tidspunkt]
+Hvilke data: [Type informasjon]
+Våre tiltak: [Hva vi har gjort]
+Dine tiltak: [Hva du bør gjøre]
+
+Kontakt oss: [kontaktinfo]
+        </div>
+    </div>
+
+    <h2>5. Oppfølging og forbedring</h2>
+
+    <div class="checklist">
+        <h3>✅ Tekniske tiltak</h3>
+        <ul>
+            <li>☐ Fiks sikkerhetshull</li>
+            <li>☐ Implementer forebyggende tiltak</li>
+            <li>☐ Oppdater sikkerhetsprosedyrer</li>
+            <li>☐ Test nye sikkerhetstiltak</li>
+        </ul>
+
+        <h3>✅ Organisatoriske tiltak</h3>
+        <ul>
+            <li>☐ Gjennomgå og oppdater rutiner</li>
+            <li>☐ Ekstra opplæring hvis nødvendig</li>
+            <li>☐ Vurder behov for ekstern sikkerhetskonsulent</li>
+            <li>☐ Oppdater incident response plan</li>
+        </ul>
+    </div>
+
+    <h2>6. Akutt-kontakter</h2>
+
+    <div class="contact-box">
+        <h3>🚨 Ring umiddelbart ved alvorlig brudd:</h3>
+        <table>
+            <tr>
+                <th>Rolle</th>
+                <th>Navn</th>
+                <th>Telefon</th>
+                <th>E-post</th>
+            </tr>
+            <tr>
+                <td><strong>Teknisk ansvarlig</strong></td>
+                <td>[NAVN]</td>
+                <td>[TELEFON]</td>
+                <td>[E-POST]</td>
+            </tr>
+            <tr>
+                <td><strong>Daglig leder</strong></td>
+                <td>[NAVN]</td>
+                <td>[TELEFON]</td>
+                <td>[E-POST]</td>
+            </tr>
+            <tr>
+                <td><strong>Juridisk rådgiver</strong></td>
+                <td>[NAVN]</td>
+                <td>[TELEFON]</td>
+                <td>[E-POST]</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="urgent">
+        <h2>🔥 PRINT UT DENNE SJEKKLISTEN:</h2>
+        <h3>Umiddelbart (0-1 time):</h3>
+        <p>☐ Stopp dataeksponering<br>
+        ☐ Sikre bevis og logger<br>
+        ☐ Dokumenter tidspunkt og omfang<br>
+        ☐ Varsle teknisk ansvarlig</p>
+
+        <h3>Kort sikt (1-24 timer):</h3>
+        <p>☐ Ferdigstill risikovurdering<br>
+        ☐ Varsle Datatilsynet (innen 72t)<br>
+        ☐ Varsle berørte brukere (hvis høy risiko)<br>
+        ☐ Implementer akutte mottiltak</p>
+
+        <h3>Oppfølging (1-4 uker):</h3>
+        <p>☐ Løs tekniske årsaker<br>
+        ☐ Gjennomgå og forbedre prosedyrer<br>
+        ☐ Rapporter til ledelsen<br>
+        ☐ Oppdater sikkerhetsdokumentasjon</p>
+    </div>
+
+    <hr style="margin: 40px 0;">
+    <p style="text-align: center; color: #666; font-size: 14px;">
+        <strong>KONFIDENSIELT DOKUMENT - Envia AS</strong><br>
+        Sist oppdatert: 9. juli 2025
+    </p>
+</body>
+</html>
