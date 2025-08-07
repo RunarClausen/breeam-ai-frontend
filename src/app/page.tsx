@@ -3646,7 +3646,7 @@ function EnhancedBREEAMAI() {
         privacyConsent: state.hasConsentedToPrivacy,
         reportFormat: state.reportFormat,
         phase: state.selectedPhase,
-        includeChunks: true
+        includeChunks: false
       })
       
       dispatch({ type: 'SET_PROGRESS', payload: { progress: 20, message: 'Laster opp dokumenter...' } })
@@ -3791,6 +3791,7 @@ function EnhancedBREEAMAI() {
       console.log('🎯 Dispatching SET_RESULTS with:', mappedResults)
       dispatch({ type: 'SET_RESULTS', payload: mappedResults })
       dispatch({ type: 'SET_ERROR', payload: null })
+      console.log('✅ SET_RESULTS dispatched, state.results should be set now')
       
       // Assessment completed successfully
       console.log('✅ Results set successfully, assessment complete!')
@@ -3862,7 +3863,10 @@ function EnhancedBREEAMAI() {
     } finally {
       clearTimeout(timeoutId)
       dispatch({ type: 'SET_ASSESSING', payload: false })
-      dispatch({ type: 'SET_PROGRESS', payload: { progress: 0, message: '' } })
+      // Only reset progress if we don't have results (i.e., assessment failed)
+      if (!state.results) {
+        dispatch({ type: 'SET_PROGRESS', payload: { progress: 0, message: '' } })
+      }
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current)
       }
