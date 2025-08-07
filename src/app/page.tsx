@@ -3599,280 +3599,220 @@ function EnhancedBREEAMAI() {
     throw lastError || new Error('All retry attempts failed')
   }
 
-  // Enhanced assessment with PDF support and phase
-  const startAnalysis = useCallback(async (isRetry = false) => {
+  // Helper function to simulate progress during long operations
+  const simulateProgress = useCallback((startProgress: number, endProgress: number, duration: number) => {
+    const steps = 20
+    const stepSize = (endProgress - startProgress) / steps
+    const stepDuration = duration / steps
+    
+    let currentStep = 0
+    const interval = setInterval(() => {
+      currentStep++
+      const newProgress = Math.min(startProgress + (stepSize * currentStep), endProgress)
+      dispatch({ type: 'SET_PROGRESS', payload: { progress: newProgress } })
+      
+      if (currentStep >= steps) {
+        clearInterval(interval)
+      }
+    }, stepDuration)
+    
+    return interval
+  }, [dispatch])
+
+  // FIXED version of the runAssessment function with improved progress tracking
+  const runAssessment = useCallback(async (isRetry = false) => {
+    console.log('🚀 Starting assessment process...')
+    
+    // Validation
+    if (!state.selectedVersion || !state.selectedCategory || !state.selectedTopic || 
+        !state.selectedCriteria.length || state.selectedFiles.length === 0) {
+      dispatch({ type: 'SET_ERROR', payload: { message: 'Vennligst fyll ut alle påkrevde felt og last opp minst én fil.' } })
+      return
+    }
+
+    // Privacy consent check
     if (!state.hasConsentedToPrivacy) {
       dispatch({ type: 'SHOW_PRIVACY_MODAL', payload: true })
       return
     }
-    
+
     dispatch({ type: 'SET_ASSESSING', payload: true })
-    dispatch({ type: 'SET_PROGRESS', payload: { progress: 0, message: 'Forbereder analyse...' } })
+    dispatch({ type: 'SET_ERROR', payload: null })
+    dispatch({ type: 'SET_PROGRESS', payload: { progress: 0, message: 'Forbereder vurdering...' } })
     
     if (!isRetry) {
       dispatch({ type: 'RESET_RETRY' })
     }
-    
-    // Set up timeout handler - increased to 10 minutes to match fetch timeout
-    const timeoutId = setTimeout(() => {
-      if (state.isAssessing) {
-        dispatch({ type: 'SET_ASSESSING', payload: false })
-        dispatch({ type: 'SET_ERROR', payload: { message: 'Vurderingen tok for lang tid (over 10 minutter). Prøv igjen med færre filer eller kriterier.' } })
-        addToast('Timeout: Vurderingen tok for lang tid', 'error')
-      }
-    }, 600000) // 10 minutes timeout - matches the fetch timeout in api_fix.ts
-    
+
     try {
-      // Check if backend is reachable
-      try {
-        const healthCheck = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://web-production-ed3ca.up.railway.app'}/api/health`)
-        if (!healthCheck.ok) {
-          throw new Error('Backend er ikke tilgjengelig')
-        }
-      } catch (error) {
-        dispatch({ type: 'SET_ERROR', payload: { message: 'Kan ikke koble til serveren. Sjekk at backend kjører og prøv igjen.' } })
-        dispatch({ type: 'SET_ASSESSING', payload: false })
-        clearTimeout(timeoutId)
-        return
-      }
+      // Step 1: Prepare form data (5%)
+      dispatch({ type: 'SET_PROGRESS', payload: { progress: 5, message: 'Klargjør dokumenter...' } })
       
-      // Use utils to create FormData with phase
       const formData = utils.createAssessmentFormData({
-        version: state.selectedVersion, // Allerede har 'v' prefix
+        version: state.selectedVersion,
         category: state.selectedCategory,
         topic: state.selectedTopic,
         criteria: state.selectedCriteria,
         files: state.selectedFiles,
-        privacyConsent: state.hasConsentedToPrivacy,
+        privacyConsent: true,
         reportFormat: state.reportFormat,
         phase: state.selectedPhase,
         includeChunks: false
       })
+
+      // Step 2: Send to backend (10%)
+      dispatch({ type: 'SET_PROGRESS', payload: { progress: 10, message: 'Sender til analyse...' } })
       
-      dispatch({ type: 'SET_PROGRESS', payload: { progress: 20, message: 'Laster opp dokumenter...' } })
+      console.log('📤 Sending assessment request...')
       
-      // console.log('🚀 Starting assessment with format:', state.reportFormat, 'and phase:', state.selectedPhase)
+      // Step 3: Processing (20-90% based on actual progress)
+      dispatch({ type: 'SET_PROGRESS', payload: { progress: 20, message: 'Analyserer dokumenter...' } })
       
-      // Progress interval with messages
-      let currentProgress = 20
-      const progressMessages = [
-        { at: 30, message: 'Ekstraherer tekst fra dokumenter...' },
-        { at: 40, message: 'Analyserer innhold...' },
-        { at: 50, message: 'Finner relevante seksjoner...' },
-        { at: 60, message: 'AI vurderer kriterier...' },
-        { at: 70, message: 'Validerer fase-krav...' },
-        { at: 80, message: 'Genererer rapport...' },
-        { at: 90, message: 'Ferdigstiller vurdering...' }
-      ]
+      // Start progress simulation (20% to 90% over 30 seconds)
+      const progressInterval = simulateProgress(20, 90, 30000)
       
-      progressIntervalRef.current = setInterval(() => {
-        // Slower progress for longer assessments
-        currentProgress = Math.min(90, currentProgress + 2) // Changed from +5 to +2
-        const messageObj = progressMessages.find(m => m.at === currentProgress)
-        dispatch({ type: 'SET_PROGRESS', payload: { 
-          progress: currentProgress,
-          message: messageObj?.message
-        } })
-      }, 1500) // Changed from 800ms to 1500ms for slower progress
-      
-      // Call API with format using retry logic
-      console.log('🚀 Calling createAssessment API...')
-      const result = await retryWithBackoff(
-        async () => {
-          console.log('📤 Sending to createAssessment...')
-          try {
-            const response = await breeamApi.createAssessment(formData, state.reportFormat)
-            console.log('📥 Received from createAssessment:', response)
+      try {
+        // Call the API with retry logic - this is where the actual work happens
+        const result = await retryWithBackoff(
+          async () => {
+            const response = await breeamApi.createAssessment(formData, state.reportFormat as any)
             
             // Validate response structure
             if (!response || typeof response !== 'object') {
               throw new Error('Invalid response format from server')
             }
             
-            // Ensure success property exists
+            // Check for error response
             if (response.success === false && response.error) {
               throw new ApiError(response.error.message || 'Assessment failed', response.error.status)
             }
             
             return response
-          } catch (error) {
-            console.error('🔴 API call error:', error)
-            throw error
+          },
+          3,
+          2000
+        )
+        
+        // Stop simulation and jump to 95%
+        clearInterval(progressInterval)
+        
+        // Step 4: Response received (95%)
+        dispatch({ type: 'SET_PROGRESS', payload: { progress: 95, message: 'Behandler resultater...' } })
+        
+        console.log('✅ Assessment completed:', result)
+        
+        // Step 5: Process results (100%)
+        if (result.success || result.assessment || result.criterion_assessments) {
+          dispatch({ type: 'SET_PROGRESS', payload: { progress: 100, message: 'Vurdering fullført!' } })
+          
+          // Process criteria results for display
+          let summary = {
+            totalCriteria: state.selectedCriteria.length,
+            fulfilled: 0,
+            partiallyFulfilled: 0,
+            notFulfilled: 0,
+            notAssessable: 0
           }
-        },
-        3,
-        2000
-      )
-      
-      console.log('✅ API Response received:', result)
-      
-      // ADD FULL DEBUG LOG:
-      console.log('🔍 FULL RESULT OBJECT:', JSON.stringify(result, null, 2))
-      
-      // Check if emergency mode is active
-      const isEmergencyMode = result?.metadata?.emergency_mode === true
-      
-      // IMMEDIATELY update progress to 100% when response is received
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current)
-      }
-      
-      if (isEmergencyMode) {
-        console.log('🚨 EMERGENCY MODE DETECTED - Using bypass response')
-        dispatch({ type: 'SET_PROGRESS', payload: { 
-          progress: 100, 
-          message: 'Vurdering sendt! (Nødmodus aktiv)' 
-        } })
-      } else {
-        dispatch({ type: 'SET_PROGRESS', payload: { progress: 100, message: 'Fullført!' } })
-      }
-      
-      // Then log details
-      console.log('📄 Assessment length:', result.assessment?.length || 0)
-      console.log('📊 Criteria evaluated:', result.criteria_evaluated)
-      console.log('📁 Files processed:', result.files_processed)
-      console.log('🚨 Emergency mode:', isEmergencyMode)
-      
-      // In emergency mode, we accept the bypass response
-      if (!result || (!result.assessment && !result.criterion_assessments && !isEmergencyMode)) {
-        console.error('❌ Empty result from backend:', result)
-        throw new Error('Backend returnerte tom vurdering. Vennligst prøv igjen eller kontakt support.')
-      }
-      
-      await new Promise(resolve => setTimeout(resolve, 500))
-      
-      // console.log('✅ Assessment completed:', result)
-      
-      // Check for emergency mode
-      if (isEmergencyMode) {
-        addToast('Nødmodus: Vurderingen kjører i bakgrunnen. Rapporten genereres selv om resultatene ikke vises live.', 'info')
-      }
-      
-      // Check for guidance usage warning
-      if (result.metadata?.guidance_usage === false) {
-        addToast('Advarsel: Vurdering utført uten veiledningsmatching', 'info')
-      }
-      
-      const mappedResults: AssessmentResult = {
-        assessment: result.assessment || '',
-        fullAssessment: result.assessment || '',
-        files_processed: result.files_processed || [],
-        // Ensure criteria_evaluated is always an array of strings
-        criteria_evaluated: Array.isArray(result.criteria_evaluated) 
-          ? result.criteria_evaluated.map(String) 
-          : [],
-        word_file: result.word_file,
-        wordFileUrl: result.word_file,
-        report_file: result.report_file,
-        report_format: state.reportFormat,
-        displayed_chunks: result.displayed_chunks || [],
-        criterion_assessments: result.criterion_assessments || [],
-        phase_validation: result.phase_validation,
-        metadata: {
-          ...result.metadata,
-          phase: state.selectedPhase,
-          phase_description: PHASE_OPTIONS.find(p => p.id === state.selectedPhase)?.name
-        },
-        summary: result.summary || {
-          totalCriteria: state.selectedCriteria.length,
-          fulfilled: result.criterion_assessments?.filter((ca: CriterionAssessment) => ca.status === '✅').length || 0,
-          partiallyFulfilled: result.criterion_assessments?.filter((ca: CriterionAssessment) => ca.status === '⚠️').length || 0,
-          notFulfilled: result.criterion_assessments?.filter((ca: CriterionAssessment) => ca.status === '❌').length || 0,
-        },
-        points_summary: result.points_summary
-      }
-      
-      // Validate before setting results
-      if (!mappedResults.assessment && !mappedResults.criterion_assessments?.length) {
-        throw new Error('Vurderingen inneholder ingen data. Prøv igjen.')
-      }
-
-      console.log('📊 Mapped results:', mappedResults)
-      console.log('🎯 Dispatching SET_RESULTS with:', mappedResults)
-      dispatch({ type: 'SET_RESULTS', payload: mappedResults })
-      dispatch({ type: 'SET_ERROR', payload: null })
-      console.log('✅ SET_RESULTS dispatched, state.results should be set now')
-      
-      // Assessment completed successfully
-      console.log('✅ Results set successfully, assessment complete!')
-      
-      addToast('AI-vurdering fullført!', 'success')
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Ukjent feil'
-      console.error('❌ Assessment failed:', error)
-      console.error('❌ Error details:', {
-        message: errorMessage,
-        type: error?.constructor?.name,
-        stack: error instanceof Error ? error.stack : undefined
-      })
-      
-      // Clear the progress interval to prevent stuck loading
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current)
-      }
-      
-      // IMPROVE ERROR HANDLING:
-      // Check for specific error types
-      if (error instanceof Error && error.name === 'AbortError') {
-        // This is our own timeout or user navigation
-        dispatch({ type: 'SET_ERROR', payload: { 
-          message: 'Vurderingen ble avbrutt. Dette kan skyldes at den tok for lang tid eller at du navigerte bort fra siden.' 
-        } })
-      } else if (error instanceof ApiError && error.status) {
-        // Backend returned an error response
-        if (error.status === 503) {
-          dispatch({ type: 'SET_ERROR', payload: { message: 'AI-tjenesten er midlertidig utilgjengelig. Prøv igjen om noen minutter.' } })
-        } else if (error.status === 400) {
-          dispatch({ type: 'SET_ERROR', payload: { message: error.details?.detail || 'Ugyldig forespørsel. Sjekk at alle felt er fylt ut korrekt.' } })
-        } else if (error.status === 408) {
-          dispatch({ type: 'SET_ERROR', payload: { message: 'Forespørselen tok for lang tid. Prøv med færre filer eller mindre kriterier.' } })
+          
+          if (result.criterion_assessments && Array.isArray(result.criterion_assessments)) {
+            summary = {
+              totalCriteria: result.criterion_assessments.length,
+              fulfilled: result.criterion_assessments.filter((c: CriterionAssessment) => c.status === '✅').length,
+              partiallyFulfilled: result.criterion_assessments.filter((c: CriterionAssessment) => c.status === '⚠️').length,
+              notFulfilled: result.criterion_assessments.filter((c: CriterionAssessment) => c.status === '❌').length,
+              notAssessable: result.criterion_assessments.filter((c: CriterionAssessment) => c.status === '❓').length
+            }
+            
+            console.log('📊 Assessment summary:', summary)
+          }
+          
+          // Build the enhanced result object
+          const mappedResults: AssessmentResult = {
+            assessment: result.assessment || '',
+            fullAssessment: result.assessment || '',
+            files_processed: result.files_processed || [],
+            criteria_evaluated: Array.isArray(result.criteria_evaluated) 
+              ? result.criteria_evaluated.map(String) 
+              : [],
+            word_file: result.word_file,
+            wordFileUrl: result.word_file,
+            report_file: result.report_file,
+            report_format: state.reportFormat,
+            displayed_chunks: result.displayed_chunks || [],
+            criterion_assessments: result.criterion_assessments || [],
+            phase_validation: result.phase_validation,
+            metadata: {
+              ...result.metadata,
+              phase: state.selectedPhase,
+              phase_description: PHASE_OPTIONS.find(p => p.id === state.selectedPhase)?.name
+            },
+            summary: result.summary || summary,
+            points_summary: result.points_summary
+          }
+          
+          // Store the result
+          dispatch({ type: 'SET_RESULTS', payload: mappedResults })
+          
+          // Short delay to show 100% before navigating
+          await new Promise(resolve => setTimeout(resolve, 500))
+          
+          // Show success toast
+          addToast('AI-vurdering fullført!', 'success')
+          
         } else {
-          dispatch({ type: 'SET_ERROR', payload: { message: `Server feil (${error.status}): ${error.details?.detail || errorMessage}` } })
+          // Handle error from backend
+          throw new Error(result.message || 'Vurdering feilet')
         }
-      } else if (error instanceof TypeError && error.message.includes('fetch')) {
-        // Request was made but no response received
-        dispatch({ type: 'SET_ERROR', payload: { message: 'Kunne ikke nå serveren. Sjekk internettforbindelsen og prøv igjen.' } })
-      } else if (errorMessage.includes('Failed to read response data')) {
-        // Response was too large or corrupted
-        dispatch({ type: 'SET_ERROR', payload: { 
-          message: 'Responsen fra serveren var for stor eller skadet. Prøv med færre kriterier eller kontakt support.' 
-        } })
-      } else {
-        // Something else happened
-        dispatch({ type: 'SET_ERROR', payload: { message: errorMessage } })
+        
+      } catch (error) {
+        // Stop progress simulation if still running
+        clearInterval(progressInterval)
+        throw error
       }
       
-      // Don't set empty results - keep user on the form
-      dispatch({ type: 'SET_RESULTS', payload: null })
+    } catch (error) {
+      console.error('❌ Assessment failed:', error)
       
+      let errorMessage = 'En feil oppstod under vurderingen.'
+      
+      if (error instanceof ApiError) {
+        errorMessage = error.message
+        
+        // Specific error handling
+        if (error.status === 408) {
+          errorMessage = 'Vurderingen tok for lang tid. Prøv igjen med færre filer eller kriterier.'
+        } else if (error.status === 500) {
+          errorMessage = 'Serverfeil. Vennligst prøv igjen om litt.'
+        } else if (error.status === 503) {
+          errorMessage = 'AI-tjenesten er midlertidig utilgjengelig. Prøv igjen om noen minutter.'
+        }
+      } else if (error instanceof Error) {
+        errorMessage = error.message
+      }
+      
+      dispatch({ type: 'SET_ERROR', payload: { message: errorMessage } })
+      dispatch({ type: 'SET_PROGRESS', payload: { progress: 0, message: '' } })
       dispatch({ type: 'INCREMENT_RETRY' })
       
       // Show retry option if not already retrying too many times
       if (state.retryCount < 3) {
-        addToast(
-          `Vurdering feilet: ${errorMessage}. Prøv igjen eller kontakt support.`, 
-          'error'
-        )
+        addToast(`Vurdering feilet: ${errorMessage}. Prøv igjen eller kontakt support.`, 'error')
       } else {
-        addToast(
-          'Vurdering feilet etter flere forsøk. Vennligst kontakt support.', 
-          'error'
-        )
+        addToast('Vurdering feilet etter flere forsøk. Vennligst kontakt support.', 'error')
       }
+      
     } finally {
-      clearTimeout(timeoutId)
       dispatch({ type: 'SET_ASSESSING', payload: false })
-      // Only reset progress if we don't have results (i.e., assessment failed)
-      if (!state.results) {
-        dispatch({ type: 'SET_PROGRESS', payload: { progress: 0, message: '' } })
-      }
+      
+      // Clear any remaining intervals
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current)
       }
-      console.log('🏁 Assessment flow completed (success or error)')
     }
-  }, [state, addToast])
+  }, [state, addToast, simulateProgress])
+
+  // Alias for backward compatibility
+  const startAnalysis = runAssessment
 
   const canStartAssessment = useCallback(() => {
     return state.selectedVersion && state.selectedCategory && state.selectedTopic && 
