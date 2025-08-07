@@ -23,207 +23,124 @@ export class ApiError extends Error {
   }
 }
 
-// FIXED handleResponse - unngår double-read og hanging
+// Helper function for fetch with timeout
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new ApiError(`Request timed out after ${timeoutMs}ms`, 408);
+    }
+    throw error;
+  }
+}
+
+// In api.ts - Replace the entire handleResponse function with this simpler version
+
 async function handleResponse<T>(response: Response): Promise<T> {
+  console.log('📊 Response status:', response.status);
+  console.log('📊 Response URL:', response.url);
+  console.log('📊 Response content-type:', response.headers.get('content-type'));
+  
   // Check response status first
   if (!response.ok) {
     let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-    let errorDetails = null;
     
     try {
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        const errorData = await response.json();
-        if (typeof errorData === 'string') {
-          errorMessage = errorData;
-        } else if (errorData.detail) {
-          errorMessage = errorData.detail;
-        } else if (errorData.message) {
-          errorMessage = errorData.message;
-        } else if (errorData.error) {
-          errorMessage = errorData.error.message || errorData.error;
-        }
-        errorDetails = errorData;
-      } else {
-        const text = await response.text();
-        errorMessage = `Serverfeil: ${text.substring(0, 200)}`;
+      // Try to get error details
+      const errorText = await response.text();
+      console.error('❌ Error response:', errorText);
+      
+      try {
+        const errorData = JSON.parse(errorText);
+        errorMessage = errorData.message || errorData.detail || errorData.error || errorMessage;
+      } catch {
+        // Not JSON, use text
+        errorMessage = errorText.substring(0, 200);
       }
     } catch (e) {
-      console.error('❌ Failed to read error response:', e);
+      console.error('❌ Could not read error response:', e);
     }
     
-    throw new ApiError(errorMessage, response.status, errorDetails);
+    throw new ApiError(errorMessage, response.status);
   }
   
-  // SUCCESS - Check content type and handle accordingly
-  const contentType = response.headers.get('content-type');
-  console.log('📊 Response content-type:', contentType);
-  console.log('📊 Response status:', response.status);
-  console.log('📊 Response URL:', response.url);
-  
-  // Check if response is JSON
-  if (!contentType || !contentType.includes('application/json')) {
-    // If not JSON, try to read as text
-    const text = await response.text();
-    console.warn('⚠️ Response is not JSON, got text:', text.substring(0, 100));
-    
-    // Try to parse anyway in case header is wrong
-    try {
-      const data = JSON.parse(text) as T;
-      console.log('✅ Managed to parse as JSON anyway');
-      return data;
-    } catch {
-      throw new ApiError(
-        `Server returnerte ikke JSON format (${contentType})`,
-        response.status
-      );
-    }
-  }
-  
+  // SUCCESS - Use the SIMPLEST approach - just response.json()
   try {
-    console.log('📖 Attempting to read response body...');
-    
-    let text: string;
-    
-    try {
-      // Try arrayBuffer first (most reliable)
-      console.log('🔄 Trying arrayBuffer approach...');
-      const buffer = await response.arrayBuffer();
-      console.log('📦 Got arrayBuffer, size:', buffer.byteLength, 'bytes');
-      
-      // Convert to string
-      const decoder = new TextDecoder('utf-8');
-      text = decoder.decode(buffer);
-      console.log('📝 Decoded text, length:', text.length);
-    } catch (bufferError) {
-      console.error('❌ ArrayBuffer approach failed:', bufferError);
-      throw new Error('Could not read response body');
-    }
-    
-    // Log response preview
-    if (text.length > 0) {
-      console.log('📄 Response preview:', text.substring(0, 500));
-      
-      // Check if it's actually JSON
-      if (!text.trim().startsWith('{') && !text.trim().startsWith('[')) {
-        console.error('⚠️ Response does not look like JSON:', text.substring(0, 100));
-        throw new Error('Response is not valid JSON');
-      }
-    } else {
-      console.error('⚠️ Empty response received!');
-      throw new Error('Empty response body');
-    }
-    
-    // Try to parse as JSON
-    let data: T;
-    try {
-      data = JSON.parse(text) as T;
-      console.log('✅ JSON parsed successfully');
-    } catch (parseError) {
-      console.error('❌ JSON parse failed:', parseError);
-      console.error('📄 Full text that failed to parse:', text);
-      throw new ApiError(
-        `Invalid JSON response from server`,
-        response.status,
-        { parseError: String(parseError), textPreview: text.substring(0, 1000) }
-      );
-    }
-    
+    console.log('📖 Reading response with response.json()...');
+    const data = await response.json() as T;
+    console.log('✅ Response parsed successfully');
+    console.log('📊 Response data type:', typeof data);
     console.log('📊 Response data keys:', data && typeof data === 'object' ? Object.keys(data).slice(0, 10) : 'N/A');
     
-    // CRITICAL: Validate assessment response structure
-    if (response.url && response.url.includes('/api/vurder')) {
-      console.log('📋 Validating assessment response structure...');
+    // Special validation for assessment endpoint
+    if (response.url.includes('/api/vurder')) {
+      console.log('📋 Validating assessment response...');
       
-      // Check if we got criteria structure instead of assessment
+      // Check for wrong structure (criteria instead of assessment)
       if ('grupper' in (data as any) && !('success' in (data as any))) {
-        console.error('❌ CRITICAL ERROR: Got criteria structure instead of assessment response!');
-        console.error('❌ This means the wrong endpoint or handler is being called!');
-        console.error('📊 Received keys:', Object.keys(data as any));
-        console.error('📊 Expected keys: success, assessment_id, assessment, report_file, etc.');
-        console.error('📊 Response size:', text.length, 'bytes');
-        console.error('📊 First 200 chars of response:', text.substring(0, 200));
-        
+        console.error('❌ ERROR: Got criteria structure instead of assessment!');
         throw new ApiError(
-          'KRITISK FEIL: Server returnerte kriterie-struktur i stedet for vurdering. Dette indikerer en routing-feil på serveren.',
-          500,
-          { 
-            wrongStructure: true, 
-            receivedKeys: Object.keys(data as any),
-            expectedKeys: ['success', 'assessment_id', 'assessment', 'report_file'],
-            responseSize: text.length
-          }
+          'Server returnerte feil datastruktur - fikk kriterier i stedet for vurdering',
+          500
         );
       }
       
-      // Check if we got HTML instead of JSON (common proxy/CDN issue)
-      if (text.includes('<!DOCTYPE') || text.includes('<html')) {
-        console.error('❌ Got HTML instead of JSON - possible proxy/CDN issue');
+      // Check for required fields
+      if (!('success' in (data as any)) || !('assessment_id' in (data as any))) {
+        console.error('❌ Missing required fields!');
+        console.error('Got keys:', Object.keys(data as any));
         throw new ApiError(
-          'Server returnerte HTML i stedet for JSON - mulig proxy/CDN problem',
-          500,
-          { gotHtml: true }
+          'Respons mangler påkrevde felt (success/assessment_id)',
+          500
         );
       }
       
-      // Validate required fields for assessment
-      const requiredFields = ['success', 'assessment_id'];
-      const missingFields = requiredFields.filter(field => !(field in (data as any)));
-      
-      if (missingFields.length > 0) {
-        console.error('❌ Missing required fields in assessment response:', missingFields);
-        console.error('📊 Available fields:', Object.keys(data as any));
-        
-        // Check if it might be a different endpoint's response
-        if ('categories' in (data as any) || 'topics' in (data as any)) {
-          console.error('❌ This looks like a BREEAM structure response, not an assessment!');
-        }
-        
-        throw new ApiError(
-          `Ugyldig assessment-respons - mangler påkrevde felt: ${missingFields.join(', ')}`,
-          500,
-          { 
-            missingFields,
-            availableFields: Object.keys(data as any)
-          }
-        );
-      }
-      
-      // Additional validation
-      const assessmentData = data as any;
-      
-      // Check success field
-      if (typeof assessmentData.success !== 'boolean') {
-        console.warn('⚠️ success field is not boolean:', typeof assessmentData.success, assessmentData.success);
-      }
-      
-      // Check assessment_id
-      if (!assessmentData.assessment_id || typeof assessmentData.assessment_id !== 'string') {
-        console.error('❌ Invalid assessment_id:', assessmentData.assessment_id);
-        throw new ApiError('Ugyldig assessment_id i respons', 500);
-      }
-      
-      // Log successful validation
-      console.log('✅ Assessment response validation passed');
-      console.log('  - success:', assessmentData.success);
-      console.log('  - assessment_id:', assessmentData.assessment_id);
-      console.log('  - has assessment:', 'assessment' in assessmentData);
-      console.log('  - has report_file:', 'report_file' in assessmentData);
-      console.log('  - has criteria_results:', 'criteria_results' in assessmentData);
+      console.log('✅ Assessment validation passed');
+      console.log('  - success:', (data as any).success);
+      console.log('  - assessment_id:', (data as any).assessment_id);
     }
     
     return data;
-  } catch (e) {
-    console.error('❌ Response handling error:', e);
     
-    if (e instanceof ApiError) {
-      throw e;
+  } catch (error) {
+    console.error('❌ Failed to parse response:', error);
+    
+    // If json() failed, try text() as fallback
+    try {
+      console.log('🔄 Trying text() fallback...');
+      const text = await response.text();
+      console.log('📝 Got text, length:', text.length);
+      console.log('📝 Text preview:', text.substring(0, 200));
+      
+      // Try to parse the text as JSON
+      const data = JSON.parse(text) as T;
+      console.log('✅ Fallback parse successful');
+      return data;
+      
+    } catch (fallbackError) {
+      console.error('❌ Fallback also failed:', fallbackError);
+      
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      
+      throw new ApiError(
+        `Kunne ikke lese respons: ${error instanceof Error ? error.message : 'Ukjent feil'}`,
+        response.status
+      );
     }
-    
-    throw new ApiError(
-      `Kunne ikke lese respons: ${e instanceof Error ? e.message : 'Ukjent feil'}`,
-      response.status
-    );
   }
 }
 
@@ -336,6 +253,9 @@ export interface AssessmentResponse {
     page_references?: string[];
   }>;
 }
+
+// Type alias for compatibility with the updated createAssessment function
+export type AssessmentResult = AssessmentResponse;
 
 export interface HealthResponse {
   status: string;
@@ -545,195 +465,98 @@ export const breeamApi = {
   /**
    * Create a new assessment - FIXED with enhanced error handling and report format support
    */
-  async createAssessment(formData: FormData, reportFormat: ReportFormat = 'pdf'): Promise<AssessmentResponse> {
+  async createAssessment(formData: FormData, reportFormat: ReportFormat = 'pdf'): Promise<AssessmentResult> {
     const url = `${API_BASE_URL}/api/vurder`;
     
-    // Log the exact URL being called
     console.log('📤 Exact URL for assessment:', url);
     console.log('📤 Request method: POST');
-    
-    // Add report format to form data if not already present
-    if (!formData.has('report_format')) {
-      formData.append('report_format', reportFormat);
-    }
-    
-    // Log what we're sending for debugging
     console.log('📤 Sending assessment request to:', url);
     console.log('📋 FormData contents:');
-    for (let [key, value] of formData.entries()) {
+    
+    // Log FormData contents
+    for (const [key, value] of formData.entries()) {
       if (value instanceof File) {
         console.log(`  ${key}: File(${value.name}, ${value.size} bytes, ${value.type})`);
       } else {
         console.log(`  ${key}: ${value}`);
       }
     }
-
-    const startTime = Date.now();
     
-    // Create manual AbortController for better control
-    const controller = new AbortController();
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
-    try {
-      console.log('🚀 Initiating fetch request...');
-      
-      // 10 minutes timeout for large files
-      timeoutId = setTimeout(() => {
-        console.error('⏰ Manual timeout triggered after 10 minutes');
-        controller.abort();
-      }, 600000);
-      
-      const response = await fetch(url, {
-        method: 'POST',
-        body: formData,
-        // Don't set Content-Type header - let browser set it with boundary for multipart/form-data
-        mode: 'cors',
-        signal: controller.signal,
-        credentials: 'include',
-        headers: {
-          'Accept': 'application/json',
-          // Don't set Content-Type for FormData
-        },
-      });
-      
-      console.log('📊 Response URL:', response.url);
-      console.log('📊 Response redirected:', response.redirected);
-      
-      if (response.redirected) {
-        console.warn('⚠️ Response was redirected to:', response.url);
+    const retryCount = 3;
+    const retryDelay = 1000;
+    
+    for (let attempt = 1; attempt <= retryCount; attempt++) {
+      try {
+        console.log(`🚀 Attempt ${attempt}/${retryCount} - Initiating fetch request...`);
+        
+        // Use 120 second timeout for assessment
+        const response = await fetchWithTimeout(url, {
+          method: 'POST',
+          body: formData,
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json',
+            // Don't set Content-Type for FormData - browser will set it with boundary
+          },
+        }, 120000);
+        
+        console.log('📊 Response URL:', response.url);
+        console.log('📊 Response redirected:', response.redirected);
+        console.log('📊 Response status:', response.status);
+        console.log('📊 Response headers:', Object.fromEntries(response.headers.entries()));
+        
+        if (response.redirected) {
+          console.warn('⚠️ Request was redirected to:', response.url);
+        }
+        
+        console.log('🎯 Calling handleResponse...');
+        const result = await handleResponse<AssessmentResult>(response);
+        
+        console.log('✅ Assessment created successfully');
+        console.log('📊 Result:', {
+          success: result.success,
+          assessment_id: result.assessment_id,
+          has_assessment: !!result.assessment,
+          has_report: !!result.report_file,
+          criteria_count: result.criteria_results?.length || 0
+        });
+        
+        // Extra validation
+        if (!result.assessment_id) {
+          throw new ApiError('Response missing assessment_id', 500);
+        }
+        
+        if (!result.success && !result.error) {
+          console.warn('⚠️ Assessment not successful but no error provided');
+        }
+        
+        return result;
+        
+      } catch (error) {
+        console.error(`❌ Attempt ${attempt} failed:`, error);
+        
+        if (attempt === retryCount) {
+          console.error('❌ All retry attempts failed');
+          
+          if (error instanceof ApiError) {
+            throw error;
+          }
+          
+          throw new ApiError(
+            `Kunne ikke opprette vurdering etter ${retryCount} forsøk: ${
+              error instanceof Error ? error.message : 'Ukjent feil'
+            }`,
+            500
+          );
+        }
+        
+        console.log(`⏳ Waiting ${retryDelay}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
       }
-      
-      // Clear timeout immediately after getting response
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      console.log('✅ Response received, timeout cleared');
-
-      const elapsed = Date.now() - startTime;
-      console.log(`⏱️ Response received after ${elapsed}ms`);
-
-      // Check if we got JSON response
-      const contentType = response.headers.get('content-type');
-      console.log('📋 Response Content-Type:', contentType);
-      
-      if (!contentType || !contentType.includes('application/json')) {
-        throw new ApiError(
-          `Server returnerte feil format (${contentType}). Forventet JSON.`,
-          response.status
-        );
-      }
-
-      // Special handling for specific status codes
-      if (response.status === 503) {
-        throw new ApiError('AI-tjenesten er midlertidig utilgjengelig', 503);
-      }
-
-      if (response.status === 413) {
-        throw new ApiError('Filene er for store. Maksimum 50MB per fil.', 413);
-      }
-
-      if (response.status === 429) {
-        throw new ApiError('For mange forespørsler. Vent 1 minutt før du prøver igjen.', 429);
-      }
-
-      console.log('🎯 Calling handleResponse...');
-      console.log('🔍 Response bodyUsed before handleResponse:', response.bodyUsed);
-      
-      // Call handleResponse directly - no Promise.race!
-      const result = await handleResponse<AssessmentResponse>(response);
-      
-      console.log('✅ handleResponse returned successfully');
-      console.log('📋 Result type:', typeof result);
-      console.log('📋 Result keys:', result ? Object.keys(result).slice(0, 10) : 'null');
-      console.log('📋 Has success property?', result && 'success' in result);
-      console.log('📋 Success value:', result?.success);
-      console.log('📋 Has assessment?', result && 'assessment' in result);
-      console.log('📋 Assessment length:', result?.assessment?.length || 0);
-      
-      // Debug log
-      console.log('🔍 FULL RESULT:', result);
-      
-      // Check if backend returned a failure response
-      if (result.success === false) {
-        throw new ApiError(
-          result.message || 'Assessment failed',
-          response.status,
-          result
-        );
-      }
-      
-      // Extra validation
-      if (!result.assessment_id) {
-        throw new ApiError('Respons mangler assessment_id', 500);
-      }
-      
-      // Handle null values and ensure backwards compatibility
-      console.log('🔧 Creating normalizedResult...');
-      const normalizedResult = {
-        ...result,
-        word_file: result.word_file || null,
-        report_file: result.report_file || null,
-        report_format: result.report_format || reportFormat,
-        success: true, // Already checked for false above
-        files_processed: result.files_processed || [],
-        criteria_evaluated: result.criteria_evaluated || [],
-        metadata: result.metadata || {}
-      };
-      console.log('✅ normalizedResult created');
-      
-      console.log('✅ Assessment response received successfully');
-      console.log('📊 Response summary:', {
-        success: normalizedResult.success,
-        hasAssessment: !!normalizedResult.assessment,
-        assessmentLength: normalizedResult.assessment?.length,
-        reportFile: normalizedResult.report_file || normalizedResult.word_file,
-        reportFormat: normalizedResult.report_format || 'word',
-        filesProcessed: normalizedResult.files_processed?.length,
-        processingTime: normalizedResult.processing_time
-      });
-      
-      console.log('🎯 Returning normalized result to caller');
-      return normalizedResult;
-      
-    } catch (error) {
-      // Clear timeout on error
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      
-      const elapsed = Date.now() - startTime;
-      console.error(`❌ Assessment request failed after ${elapsed}ms:`, error);
-      
-      // Re-throw ApiErrors as-is
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      
-      // Handle network and timeout errors
-      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-        throw new ApiError(
-          'Kunne ikke koble til serveren. Sjekk internettforbindelsen og prøv igjen.',
-          0,
-          error
-        );
-      }
-      
-      if (error instanceof Error && (error.name === 'AbortError' || error.message.includes('timeout'))) {
-        throw new ApiError(
-          'Forespørselen tok for lang tid. Prøv med mindre filer eller sjekk internettforbindelsen.',
-          408,
-          error
-        );
-      }
-      
-      // Wrap other errors
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      throw new ApiError(
-        `Uventet feil: ${errorMessage}`,
-        0,
-        error
-      );
     }
+    
+    // Should never reach here
+    throw new ApiError('Unexpected error in createAssessment', 500);
   }
 };
 
