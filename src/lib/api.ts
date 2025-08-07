@@ -23,7 +23,7 @@ export class ApiError extends Error {
   }
 }
 
-// RIKTIG handleResponse - HELT UTEN timeout
+// FUNGERENDE handleResponse - bruker text() for å unngå hanging
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
@@ -47,6 +47,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
           } else if (errorData.error) {
             errorMessage = errorData.error.message || errorData.error;
           }
+          errorDetails = errorData;
         } catch (parseError) {
           errorMessage = `Serverfeil: ${text.substring(0, 200)}`;
         }
@@ -58,13 +59,26 @@ async function handleResponse<T>(response: Response): Promise<T> {
     throw new ApiError(errorMessage, response.status, errorDetails);
   }
   
-  // FIKSET: Direkte JSON parsing UTEN timeout
+  // SUCCESS - Bruk text() i stedet for json() for å unngå hanging
+  console.log('📊 Reading response as text...');
+  console.log('📊 Response status:', response.status);
+  console.log('📊 Response bodyUsed:', response.bodyUsed);
+  
   try {
-    const data = await response.json() as T;
-    console.log('✅ JSON parsed successfully');
+    // Les som text først
+    const responseText = await response.text();
+    console.log('📝 Got response text, length:', responseText.length);
+    console.log('📝 First 100 chars:', responseText.substring(0, 100));
+    
+    // Parse teksten som JSON
+    const data = JSON.parse(responseText) as T;
+    console.log('✅ JSON parsed successfully from text');
+    console.log('📊 Data keys:', data && typeof data === 'object' ? Object.keys(data).slice(0, 5) : 'N/A');
+    
     return data;
   } catch (e) {
-    console.error('❌ JSON parse error:', e);
+    console.error('❌ Parse error:', e);
+    
     throw new ApiError(
       `Kunne ikke lese respons: ${e instanceof Error ? e.message : 'Ukjent feil'}`,
       response.status
@@ -329,40 +343,40 @@ export const breeamApi = {
   },
   
   /**
- * Get criteria for a specific version, category, and topic
- */
-async getCriteria(version: string, category: string, topic: string): Promise<CriteriaResponse> {
-  try {
-    console.log('📡 Fetching criteria for:', { version, category, topic });
-    
-    const params = new URLSearchParams({ 
-      versjon: version, 
-      kategori: category,
-      emne: topic 
-    });
-    const response = await fetch(`${API_BASE_URL}/api/kriterier?${params}`, {
-      method: 'GET',
-      mode: 'cors',
-      cache: 'default',
-      headers: {
-        'Accept': 'application/json',
+   * Get criteria for a specific version, category, and topic
+   */
+  async getCriteria(version: string, category: string, topic: string): Promise<CriteriaResponse> {
+    try {
+      console.log('📡 Fetching criteria for:', { version, category, topic });
+      
+      const params = new URLSearchParams({ 
+        versjon: version, 
+        kategori: category,
+        emne: topic 
+      });
+      const response = await fetch(`${API_BASE_URL}/api/kriterier?${params}`, {
+        method: 'GET',
+        mode: 'cors',
+        cache: 'default',
+        headers: {
+          'Accept': 'application/json',
+        }
+      });
+      const data = await handleResponse<CriteriaResponse>(response);
+      console.log('📦 Criteria response:', data);
+      
+      // Valider strukturen
+      if (!data || !data.grupper) {
+        console.error('⚠️ Invalid criteria response structure:', data);
+        throw new Error('Invalid criteria response structure');
       }
-    });
-    const data = await handleResponse<CriteriaResponse>(response);
-    console.log('📦 Criteria response:', data);
-    
-    // Valider strukturen
-    if (!data || !data.grupper) {
-      console.error('⚠️ Invalid criteria response structure:', data);
-      throw new Error('Invalid criteria response structure');
+      
+      return data;
+    } catch (error) {
+      console.error('Failed to fetch criteria:', error);
+      throw error;
     }
-    
-    return data;
-  } catch (error) {
-    console.error('Failed to fetch criteria:', error);
-    throw error;
-  }
-},
+  },
   
   /**
    * Get guidance for a specific criterion
@@ -416,18 +430,17 @@ async getCriteria(version: string, category: string, topic: string): Promise<Cri
     try {
       console.log('🚀 Initiating fetch request...');
       
+      // 10 minutes timeout for large files
       timeoutId = setTimeout(() => {
         console.error('⏰ Manual timeout triggered after 10 minutes');
         controller.abort();
-      }, 600000); // 10 minutes timeout
+      }, 600000);
       
       const response = await fetch(`${API_BASE_URL}/api/vurder`, {
         method: 'POST',
         body: formData,
         // Don't set Content-Type header - let browser set it with boundary for multipart/form-data
         mode: 'cors',
-        // Remove credentials: 'include' to avoid CORS issues with wildcard origin
-        // credentials: 'include',
         signal: controller.signal
       });
       
@@ -445,43 +458,15 @@ async getCriteria(version: string, category: string, topic: string): Promise<Cri
       console.log('📋 Response Content-Type:', contentType);
       
       if (!contentType || !contentType.includes('application/json')) {
-        // Try to read the response body for debugging
-        try {
-          // FIXED: Clone response before reading to avoid consuming the body
-          const responseClone = response.clone();
-          const text = await responseClone.text();
-          console.error('❌ Non-JSON response body:', text.substring(0, 500));
-          
-          // Check for specific error patterns
-          if (text.includes('column') && text.includes('does not exist')) {
-            throw new ApiError(
-              'Database schema feil. Systemet må oppdateres av administrator.',
-              response.status
-            );
-          }
-          
-        } catch (e) {
-          console.error('Could not read response body');
-        }
-        
         throw new ApiError(
           `Server returnerte feil format (${contentType}). Forventet JSON.`,
           response.status
         );
       }
 
-      // Special handling for specific status codes before calling handleResponse
+      // Special handling for specific status codes
       if (response.status === 503) {
-        try {
-          // FIXED: Clone response before reading to avoid consuming the body
-          const responseClone = response.clone();
-          const errorData = await responseClone.json();
-          const message = errorData.detail?.message || errorData.detail || 'AI-tjenesten er midlertidig utilgjengelig. Vennligst prøv igjen om noen minutter.';
-          throw new ApiError(message, 503, errorData.detail);
-        } catch (e) {
-          if (e instanceof ApiError) throw e;
-          throw new ApiError('AI-tjenesten er midlertidig utilgjengelig', 503);
-        }
+        throw new ApiError('AI-tjenesten er midlertidig utilgjengelig', 503);
       }
 
       if (response.status === 413) {
@@ -493,8 +478,9 @@ async getCriteria(version: string, category: string, topic: string): Promise<Cri
       }
 
       console.log('🎯 Calling handleResponse...');
+      console.log('🔍 Response bodyUsed before handleResponse:', response.bodyUsed);
       
-      // DIREKTE kall - INGEN Promise.race!
+      // Call handleResponse directly - no Promise.race!
       const result = await handleResponse<AssessmentResponse>(response);
       
       console.log('✅ handleResponse returned successfully');
@@ -504,6 +490,9 @@ async getCriteria(version: string, category: string, topic: string): Promise<Cri
       console.log('📋 Success value:', result?.success);
       console.log('📋 Has assessment?', result && 'assessment' in result);
       console.log('📋 Assessment length:', result?.assessment?.length || 0);
+      
+      // Debug log
+      console.log('🔍 FULL RESULT:', result);
       
       // Check if backend returned a failure response
       if (result.success === false) {
@@ -590,7 +579,7 @@ export const useApi = () => {
     ...breeamApi,
     apiUrl: API_BASE_URL,
     
-    // Helper to build full URL for downloads - UPDATED to handle both file types
+    // Helper to build full URL for downloads
     getDownloadUrl: (path: string, format?: string) => {
       if (!path) return '';
       if (path.startsWith('http')) return path;
@@ -670,7 +659,7 @@ export const utils = {
   },
   
   /**
-   * Create form data for assessment - NOTE: Still removes 'v' prefix for compatibility
+   * Create form data for assessment
    */
   createAssessmentFormData(params: {
     version: string;
@@ -708,8 +697,7 @@ export const utils = {
       }
     }
     
-    // NOTE: For /api/vurder endpoint, we might still need to remove 'v' prefix
-    // This depends on your backend implementation for this specific endpoint
+    // Remove 'v' prefix for backend compatibility
     const cleanVersion = params.version.replace(/^v/, '');
     
     // Add all required fields
@@ -718,7 +706,7 @@ export const utils = {
     formData.append('emne', params.topic);
     formData.append('kriterier', params.criteria.join(','));
     formData.append('privacy_consent', String(params.privacyConsent ?? true));
-    formData.append('report_format', params.reportFormat || 'pdf');  // Default to PDF
+    formData.append('report_format', params.reportFormat || 'pdf');
     
     // Add optional fields
     if (params.phase) {
@@ -756,7 +744,7 @@ export const utils = {
       case 'docx':
         return '.docx';
       default:
-        return '.pdf';  // Default to PDF
+        return '.pdf';
     }
   },
   
@@ -779,7 +767,7 @@ export const utils = {
    * Generate suggested filename for report download
    */
   generateReportFilename(assessmentId?: string, format?: string): string {
-    const timestamp = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const timestamp = new Date().toISOString().slice(0, 10);
     const id = assessmentId ? assessmentId.slice(0, 8) : 'rapport';
     const extension = this.getFileExtension(format);
     return `BREEAM-vurdering_${id}_${timestamp}${extension}`;

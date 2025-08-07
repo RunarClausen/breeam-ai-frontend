@@ -3706,6 +3706,9 @@ function EnhancedBREEAMAI() {
       
       console.log('✅ API Response received:', result)
       
+      // ADD FULL DEBUG LOG:
+      console.log('🔍 FULL RESULT OBJECT:', JSON.stringify(result, null, 2))
+      
       // Check if emergency mode is active
       const isEmergencyMode = result?.metadata?.emergency_mode === true
       
