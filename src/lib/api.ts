@@ -31,8 +31,11 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
   }, timeoutMs);
   
   try {
+    // Remove credentials from options if present
+    const { credentials, ...cleanOptions } = options;
+    
     const response = await fetch(url, {
-      ...options,
+      ...cleanOptions,
       signal: controller.signal
     });
     clearTimeout(timeoutId);
@@ -493,7 +496,7 @@ export const breeamApi = {
         const response = await fetchWithTimeout(url, {
           method: 'POST',
           body: formData,
-          credentials: 'include',
+          // REMOVED: credentials: 'include', <- THIS WAS THE PROBLEM!
           headers: {
             'Accept': 'application/json',
             // Don't set Content-Type for FormData - browser will set it with boundary
