@@ -49,7 +49,7 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
   }
 }
 
-// In api.ts - Replace the entire handleResponse function with this simpler version
+// In api.ts - Replace handleResponse with text-based parsing:
 
 async function handleResponse<T>(response: Response): Promise<T> {
   console.log('📊 Response status:', response.status);
@@ -59,31 +59,32 @@ async function handleResponse<T>(response: Response): Promise<T> {
   // Check response status first
   if (!response.ok) {
     let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-    
     try {
-      // Try to get error details
       const errorText = await response.text();
       console.error('❌ Error response:', errorText);
-      
       try {
         const errorData = JSON.parse(errorText);
         errorMessage = errorData.message || errorData.detail || errorData.error || errorMessage;
       } catch {
-        // Not JSON, use text
         errorMessage = errorText.substring(0, 200);
       }
     } catch (e) {
       console.error('❌ Could not read error response:', e);
     }
-    
     throw new ApiError(errorMessage, response.status);
   }
   
-  // SUCCESS - Use the SIMPLEST approach - just response.json()
+  // SUCCESS - Use text() then parse
   try {
-    console.log('📖 Reading response with response.json()...');
-    const data = await response.json() as T;
-    console.log('✅ Response parsed successfully');
+    console.log('📖 Reading response with response.text()...');
+    const text = await response.text();
+    console.log('✅ Text received, length:', text.length);
+    console.log('📄 Text preview:', text.substring(0, 200));
+    
+    // Parse the text as JSON
+    console.log('🔄 Parsing text as JSON...');
+    const data = JSON.parse(text) as T;
+    console.log('✅ JSON parsed successfully');
     console.log('📊 Response data type:', typeof data);
     console.log('📊 Response data keys:', data && typeof data === 'object' ? Object.keys(data).slice(0, 10) : 'N/A');
     
@@ -118,32 +119,16 @@ async function handleResponse<T>(response: Response): Promise<T> {
     return data;
     
   } catch (error) {
-    console.error('❌ Failed to parse response:', error);
+    console.error('❌ Failed to read/parse response:', error);
     
-    // If json() failed, try text() as fallback
-    try {
-      console.log('🔄 Trying text() fallback...');
-      const text = await response.text();
-      console.log('📝 Got text, length:', text.length);
-      console.log('📝 Text preview:', text.substring(0, 200));
-      
-      // Try to parse the text as JSON
-      const data = JSON.parse(text) as T;
-      console.log('✅ Fallback parse successful');
-      return data;
-      
-    } catch (fallbackError) {
-      console.error('❌ Fallback also failed:', fallbackError);
-      
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      
-      throw new ApiError(
-        `Kunne ikke lese respons: ${error instanceof Error ? error.message : 'Ukjent feil'}`,
-        response.status
-      );
+    if (error instanceof ApiError) {
+      throw error;
     }
+    
+    throw new ApiError(
+      `Kunne ikke lese respons: ${error instanceof Error ? error.message : 'Ukjent feil'}`,
+      response.status
+    );
   }
 }
 
