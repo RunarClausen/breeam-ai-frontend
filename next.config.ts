@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  reactStrictMode: true,
+  reactStrictMode: false, // Temporarily disabled to avoid double-render issues
   // Fjern experimental og andre options som gir warning
 };
 

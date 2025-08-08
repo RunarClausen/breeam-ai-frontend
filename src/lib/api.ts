@@ -23,31 +23,31 @@ export class ApiError extends Error {
   }
 }
 
-// Helper function for fetch with timeout
-async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
+// Helper function for fetch with timeout - DISABLED to avoid stream issues
+// async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+//   const controller = new AbortController();
+//   const timeoutId = setTimeout(() => {
+//     controller.abort();
+//   }, timeoutMs);
   
-  try {
-    // Remove credentials from options if present
-    const { credentials, ...cleanOptions } = options;
+//   try {
+//     // Remove credentials from options if present
+//     const { credentials, ...cleanOptions } = options;
     
-    const response = await fetch(url, {
-      ...cleanOptions,
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    return response;
-  } catch (error) {
-    clearTimeout(timeoutId);
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new ApiError(`Request timed out after ${timeoutMs}ms`, 408);
-    }
-    throw error;
-  }
-}
+//     const response = await fetch(url, {
+//       ...cleanOptions,
+//       signal: controller.signal
+//     });
+//     clearTimeout(timeoutId);
+//     return response;
+//   } catch (error) {
+//     clearTimeout(timeoutId);
+//     if (error instanceof Error && error.name === 'AbortError') {
+//       throw new ApiError(`Request timed out after ${timeoutMs}ms`, 408);
+//     }
+//     throw error;
+//   }
+// }
 
 // In api.ts - Replace handleResponse with text-based parsing:
 
@@ -477,16 +477,15 @@ export const breeamApi = {
       try {
         console.log(`🚀 Attempt ${attempt}/${retryCount} - Initiating fetch request...`);
         
-        // Use 120 second timeout for assessment
-        const response = await fetchWithTimeout(url, {
+        // Use regular fetch without timeout wrapper to avoid stream issues
+        const response = await fetch(url, {
           method: 'POST',
           body: formData,
-          // REMOVED: credentials: 'include', <- THIS WAS THE PROBLEM!
           headers: {
             'Accept': 'application/json',
             // Don't set Content-Type for FormData - browser will set it with boundary
           },
-        }, 120000);
+        });
         
         console.log('📊 Response URL:', response.url);
         console.log('📊 Response redirected:', response.redirected);
