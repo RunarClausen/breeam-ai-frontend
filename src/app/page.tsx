@@ -3672,26 +3672,26 @@ function EnhancedBREEAMAI() {
       const progressInterval = simulateProgress(20, 90, 30000)
       
       try {
-        // Call the API with retry logic - this is where the actual work happens
-        const result = await retryWithBackoff(
-          async () => {
-            const response = await breeamApi.createAssessment(formData, state.reportFormat as any)
-            
-            // Validate response structure
-            if (!response || typeof response !== 'object') {
-              throw new Error('Invalid response format from server')
-            }
-            
-            // Check for error response
-            if (response.success === false && response.error) {
-              throw new ApiError(response.error.message || 'Assessment failed', response.error.status)
-            }
-            
-            return response
-          },
-          3,
-          2000
-        )
+        // DIAGNOSTIC: Isolate the API call to find the problem
+        console.log('🔄 About to call createAssessment...')
+        
+        // Wrap the API call to isolate it
+        const apiCall = async () => {
+          console.log('📡 Inside apiCall wrapper')
+          const response = await breeamApi.createAssessment(formData, state.reportFormat as any)
+          console.log('📡 apiCall completed:', response)
+          return response
+        }
+        
+        // Call it directly without retry wrapper
+        console.log('🚀 Calling apiCall...')
+        const result = await apiCall()
+        console.log('✅ Got result back in runAssessment:', result)
+        
+        // Validate the result
+        if (!result) {
+          throw new Error('No result returned from API')
+        }
         
         // Stop simulation and jump to 95%
         clearInterval(progressInterval)
