@@ -451,99 +451,43 @@ export const breeamApi = {
   },
   
   /**
-   * Create a new assessment - FIXED with enhanced error handling and report format support
+   * Create a new assessment - ULTRA SIMPLE version without wrappers
    */
   async createAssessment(formData: FormData, reportFormat: ReportFormat = 'pdf'): Promise<AssessmentResult> {
     const url = `${API_BASE_URL}/api/vurder`;
     
-    console.log('📤 Exact URL for assessment:', url);
-    console.log('📤 Request method: POST');
-    console.log('📤 Sending assessment request to:', url);
-    console.log('📋 FormData contents:');
+    console.log('📤 ULTRA SIMPLE createAssessment');
+    console.log('📤 URL:', url);
     
-    // Log FormData contents
-    for (const [key, value] of formData.entries()) {
-      if (value instanceof File) {
-        console.log(`  ${key}: File(${value.name}, ${value.size} bytes, ${value.type})`);
-      } else {
-        console.log(`  ${key}: ${value}`);
+    try {
+      // NO WRAPPERS, NO TIMEOUT, JUST PLAIN FETCH
+      console.log('🚀 Calling plain fetch...');
+      const response = await fetch(url, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      console.log('📊 Got response:', response.status);
+      
+      if (!response.ok) {
+        throw new ApiError(`HTTP ${response.status}`, response.status);
       }
+      
+      // Use text() directly - no wrapper
+      console.log('📖 Reading text...');
+      const text = await response.text();
+      console.log('✅ Got text, length:', text.length);
+      
+      // Parse it
+      const result = JSON.parse(text) as AssessmentResult;
+      console.log('✅ Parsed result:', result.assessment_id);
+      
+      return result;
+      
+    } catch (error) {
+      console.error('❌ ULTRA SIMPLE failed:', error);
+      throw error;
     }
-    
-    const retryCount = 3;
-    const retryDelay = 1000;
-    
-    for (let attempt = 1; attempt <= retryCount; attempt++) {
-      try {
-        console.log(`🚀 Attempt ${attempt}/${retryCount} - Initiating fetch request...`);
-        
-        // Use regular fetch without timeout wrapper to avoid stream issues
-        const response = await fetch(url, {
-          method: 'POST',
-          body: formData,
-          headers: {
-            'Accept': 'application/json',
-            // Don't set Content-Type for FormData - browser will set it with boundary
-          },
-        });
-        
-        console.log('📊 Response URL:', response.url);
-        console.log('📊 Response redirected:', response.redirected);
-        console.log('📊 Response status:', response.status);
-        console.log('📊 Response headers:', Object.fromEntries(response.headers.entries()));
-        
-        if (response.redirected) {
-          console.warn('⚠️ Request was redirected to:', response.url);
-        }
-        
-        console.log('🎯 Calling handleResponse...');
-        const result = await handleResponse<AssessmentResult>(response);
-        
-        console.log('✅ Assessment created successfully');
-        console.log('📊 Result:', {
-          success: result.success,
-          assessment_id: result.assessment_id,
-          has_assessment: !!result.assessment,
-          has_report: !!result.report_file,
-          criteria_count: result.criteria_results?.length || 0
-        });
-        
-        // Extra validation
-        if (!result.assessment_id) {
-          throw new ApiError('Response missing assessment_id', 500);
-        }
-        
-        if (!result.success && !result.error) {
-          console.warn('⚠️ Assessment not successful but no error provided');
-        }
-        
-        return result;
-        
-      } catch (error) {
-        console.error(`❌ Attempt ${attempt} failed:`, error);
-        
-        if (attempt === retryCount) {
-          console.error('❌ All retry attempts failed');
-          
-          if (error instanceof ApiError) {
-            throw error;
-          }
-          
-          throw new ApiError(
-            `Kunne ikke opprette vurdering etter ${retryCount} forsøk: ${
-              error instanceof Error ? error.message : 'Ukjent feil'
-            }`,
-            500
-          );
-        }
-        
-        console.log(`⏳ Waiting ${retryDelay}ms before retry...`);
-        await new Promise(resolve => setTimeout(resolve, retryDelay));
-      }
-    }
-    
-    // Should never reach here
-    throw new ApiError('Unexpected error in createAssessment', 500);
   }
 };
 
