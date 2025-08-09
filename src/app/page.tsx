@@ -1682,7 +1682,8 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                   <span>{results.criteria_evaluated?.length || 0} kriterier vurdert</span>
                   <span aria-hidden="true">•</span>
                   <span>{(() => {
-                    const raw = results.metadata?.processing_time;
+                    // Use processing_seconds if available, otherwise parse processing_time
+                    const raw = (results as any).processing_seconds ?? results.metadata?.processing_time;
                     const seconds = typeof raw === 'number' 
                       ? raw 
                       : parseFloat(String(raw ?? '').replace(/[^\d.]/g, '')) || 0;
@@ -1893,10 +1894,34 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
           <div className="space-y-4 mb-8">
             <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Vurdering av kriterier</h2>
             
-            {results.criterion_assessments && results.criterion_assessments.length > 0 ? (
-              results.criterion_assessments.map((criterion, index) => {
-                const statusColorKey = criterion.status === '✅' || criterion.status.toLowerCase().includes('oppnådd') && !criterion.status.toLowerCase().includes('ikke') ? 'emerald' : 
-                                  criterion.status === '⚠️' || criterion.status.toLowerCase().includes('delvis') ? 'yellow' : 
+            {(() => {
+              // Support both criteria_results and criterion_assessments
+              const list = results.criteria_results?.length ? results.criteria_results :
+                results.criterion_assessments?.map(ca => ({
+                  id: ca.criterion_id,
+                  title: ca.criterion_title || ca.title || '',
+                  status: ca.status || ca.score_status || "unknown",
+                  points: ca.points ?? 0,
+                  summary: ca.assessment || ca.summary || '',
+                  page_references: (ca.used_chunks || ca.chunks || []).slice(0, 3).map((ch: any) => {
+                    const source = ch.source || "";
+                    const page = ch.page ?? "";
+                    const filename = source.split("/").pop() || source;
+                    return page ? `${filename} (s. ${page})` : filename;
+                  }),
+                  // Keep original fields for compatibility
+                  used_chunks: ca.used_chunks,
+                  guidance_match_info: ca.guidance_match_info,
+                  phase_validation: ca.phase_validation,
+                  rejection_reasons: ca.rejection_reasons,
+                  evidence_count: ca.evidence_count,
+                  assessment: ca.assessment
+                })) || [];
+              
+              return list.length > 0 ? (
+                list.map((criterion: any, index: number) => {
+                  const statusColorKey = criterion.status === '✅' || criterion.status.toLowerCase().includes('oppnådd') && !criterion.status.toLowerCase().includes('ikke') ? 'emerald' : 
+                                    criterion.status === '⚠️' || criterion.status.toLowerCase().includes('delvis') ? 'yellow' : 
                                   criterion.status === '❌' || criterion.status.toLowerCase().includes('ikke') ? 'red' : 'gray';
                 const StatusIcon = statusColorKey === 'emerald' ? CheckCircle : 
                                  statusColorKey === 'yellow' ? AlertCircle : 
@@ -1914,7 +1939,7 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                            Kriterium {criterion.criterion_id}: {criterion.title}
+                            Kriterium {criterion.id}: {criterion.title}
                           </h3>
                           <div className="flex items-center gap-3 flex-wrap">
                             <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${statusStyles[statusColorKey]}`}>
@@ -1945,7 +1970,7 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                               </div>
                             )}
                             
-                            {criterion.used_chunks && criterion.used_chunks.length > 0 && (
+                            {((criterion.used_chunks && criterion.used_chunks.length > 0) || (criterion.page_references && criterion.page_references.length > 0)) && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -1954,7 +1979,7 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                                 className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors"
                               >
                                 <FileSearch className="w-4 h-4" />
-                                {criterion.used_chunks.length} kilder
+                                {(criterion.used_chunks || criterion.page_references || []).length} kilder
                               </button>
                             )}
                             
@@ -1978,13 +2003,13 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                     {expandedSections[`criterion-${index}`] && (
                       <div id={`criterion-content-${index}`} className="px-6 pb-6 border-t border-gray-100">
                         <div className="pt-4 space-y-4">
-                          <MarkdownRenderer content={criterion.assessment} />
+                          <MarkdownRenderer content={criterion.summary || criterion.assessment || ''} />
                           
                           {criterion.phase_validation && !criterion.phase_validation.is_valid && (
                             <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
                               <h4 className="font-medium text-amber-900 mb-2">Manglende dokumentasjon for fase:</h4>
                               <ul className="list-disc list-inside text-sm text-amber-800">
-                                {criterion.phase_validation.missing_documents.map((doc, i) => (
+                                {criterion.phase_validation.missing_documents.map((doc: any, i: number) => (
                                   <li key={i}>{doc}</li>
                                 ))}
                               </ul>
@@ -1992,7 +2017,7 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                                 <div className="mt-3">
                                   <p className="font-medium text-amber-900">Advarsler:</p>
                                   <ul className="list-disc list-inside text-sm text-amber-800">
-                                    {criterion.phase_validation.warnings.map((warning, i) => (
+                                    {criterion.phase_validation.warnings.map((warning: any, i: number) => (
                                       <li key={i}>{warning}</li>
                                     ))}
                                   </ul>
@@ -2015,7 +2040,7 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                                     <div>
                                       <p className="font-medium text-red-900 text-sm mb-1">Grunner:</p>
                                       <ul className="list-disc list-inside text-sm text-red-800 space-y-1">
-                                        {criterion.rejection_reasons.rejected_because.map((reason, i) => (
+                                        {criterion.rejection_reasons.rejected_because.map((reason: any, i: number) => (
                                           <li key={i}>{reason}</li>
                                         ))}
                                       </ul>
@@ -2023,7 +2048,7 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                                     <div>
                                       <p className="font-medium text-red-900 text-sm mb-1">Du trenger i stedet:</p>
                                       <ul className="list-disc list-inside text-sm text-red-800 space-y-1">
-                                        {criterion.rejection_reasons.need_instead.map((need, i) => (
+                                        {criterion.rejection_reasons.need_instead.map((need: any, i: number) => (
                                           <li key={i}>{need}</li>
                                         ))}
                                       </ul>
@@ -2119,7 +2144,7 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                 <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-3" />
                 <p className="text-gray-600">Ingen kriterievurderinger funnet.</p>
               </div>
-            )}
+            )})()}
           </div>
           
           {/* Recommendations */}

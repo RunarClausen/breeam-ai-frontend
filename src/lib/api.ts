@@ -212,10 +212,26 @@ export interface AssessmentResponse {
   files_processed: string[];
   criteria_evaluated: number[] | string[];  // Can be either
   processing_time: number;
+  processing_seconds?: number;  // New field from backend
   cache_used?: boolean;
   timestamp?: string;
   displayed_chunks?: any[];
-  criterion_assessments?: any[];
+  criterion_assessments?: Array<{
+    criterion_id: string;
+    criterion_title?: string;
+    title?: string;
+    status: string;
+    score_status?: string;
+    points?: number;
+    assessment: string;
+    summary?: string;
+    used_chunks?: any[];
+    chunks?: any[];
+    guidance_match_info?: any;
+    phase_validation?: any;
+    rejection_reasons?: any;
+    evidence_count?: number;
+  }>;
   phase_validation?: any;
   summary?: {
     totalCriteria: number;
@@ -240,6 +256,7 @@ export interface AssessmentResponse {
     summary: string;
     page_references?: string[];
   }>;
+  fullAssessment?: string;  // Alternative assessment field
 }
 
 // Type alias for compatibility with the updated createAssessment function
