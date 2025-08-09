@@ -15,13 +15,17 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-
 
 // Custom error class for API errors
 export class ApiError extends Error {
+  requestId?: string;
+  
   constructor(
     message: string,
     public status?: number,
-    public details?: any
+    public details?: any,
+    requestId?: string
   ) {
     super(message);
     this.name = 'ApiError';
+    this.requestId = requestId;
   }
 }
 
@@ -494,19 +498,35 @@ export const breeamApi = {
       
       if (!response.ok) {
         let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        let requestId: string | undefined;
         try {
           const errorText = await response.text();
           console.error('❌ Error response text:', errorText);
           try {
             const errorData = JSON.parse(errorText);
-            errorMessage = errorData.message || errorData.detail || errorData.error || errorMessage;
+            // Support both top-level and nested error object
+            errorMessage = errorData.message || 
+                          errorData.detail || 
+                          errorData.error?.message || 
+                          errorData.error || 
+                          errorMessage;
+            requestId = errorData.request_id || 
+                       errorData.error?.request_id || 
+                       errorData.metadata?.request_id;
           } catch {
             errorMessage = errorText.substring(0, 200) || errorMessage;
           }
         } catch (e) {
           console.error('❌ Could not read error response:', e);
         }
-        throw new ApiError(errorMessage, response.status);
+        
+        // Add requestId to console and message if available
+        if (requestId) {
+          console.error(`🆔 request_id: ${requestId}`);
+          errorMessage = `${errorMessage}${errorMessage.endsWith(".") ? "" : "."} (request_id: ${requestId})`;
+        }
+        
+        throw new ApiError(errorMessage, response.status, undefined, requestId);
       }
       
       // Try .json() first with fallback to text parsing
@@ -635,16 +655,68 @@ export const useApi = () => {
 
 // Helper function that returns the new AssessmentAPIResponse type
 export async function createAssessment(formData: FormData): Promise<AssessmentAPIResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/vurder`, {
+  const url = `${API_BASE_URL}/api/vurder`;
+
+  const res = await fetch(url, {
     method: "POST",
     body: formData,
   });
+  
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(text || `Feil ved vurdering (${res.status})`);
+    let rawText = "";
+    try {
+      rawText = await res.text();
+      // Log raw response for easy debugging in console
+      console.error("❌ Error response text:", rawText);
+    } catch (e) {
+      console.error("❌ Could not read error response:", e);
+    }
+
+    // Try to parse JSON
+    let parsed: any = null;
+    try {
+      parsed = rawText ? JSON.parse(rawText) : null;
+    } catch {
+      // ignore
+    }
+
+    // Get best possible error message
+    let message = `Feil ved vurdering (${res.status})`;
+    let requestId: string | undefined;
+
+    if (parsed && typeof parsed === "object") {
+      // Support both top-level and nested error object
+      message =
+        parsed.message ||
+        parsed.detail ||
+        parsed.error?.message ||
+        parsed.error ||
+        message;
+      requestId = parsed.request_id || parsed.error?.request_id || parsed.metadata?.request_id;
+    } else if (rawText) {
+      message = rawText;
+    }
+
+    // Add requestId to console for easy search in server logs
+    if (requestId) {
+      console.error(`🆔 request_id: ${requestId}`);
+      message = `${message}${message.endsWith(".") ? "" : "."} (request_id: ${requestId})`;
+    }
+
+    throw new ApiError(message, res.status, undefined, requestId);
   }
-  const json = (await res.json()) as AssessmentAPIResponse;
-  return json;
+
+  // OK - Try .json() with fallback to text → JSON
+  try {
+    return (await res.json()) as AssessmentAPIResponse;
+  } catch {
+    const txt = await res.text();
+    try {
+      return JSON.parse(txt) as AssessmentAPIResponse;
+    } catch {
+      throw new ApiError("Kunne ikke parse svar fra server.", res.status);
+    }
+  }
 }
 
 // Utility functions
