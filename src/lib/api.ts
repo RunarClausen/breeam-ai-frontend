@@ -29,31 +29,32 @@ export class ApiError extends Error {
   }
 }
 
-// Helper function for fetch with timeout - DISABLED to avoid stream issues
-// async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
-//   const controller = new AbortController();
-//   const timeoutId = setTimeout(() => {
-//     controller.abort();
-//   }, timeoutMs);
+// Helper function for fetch with timeout
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number = 120000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
   
-//   try {
-//     // Remove credentials from options if present
-//     const { credentials, ...cleanOptions } = options;
-    
-//     const response = await fetch(url, {
-//       ...cleanOptions,
-//       signal: controller.signal
-//     });
-//     clearTimeout(timeoutId);
-//     return response;
-//   } catch (error) {
-//     clearTimeout(timeoutId);
-//     if (error instanceof Error && error.name === 'AbortError') {
-//       throw new ApiError(`Request timed out after ${timeoutMs}ms`, 408);
-//     }
-//     throw error;
-//   }
-// }
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new ApiError(`Request timed out after ${timeoutMs/1000} seconds`, 408);
+    }
+    // Handle network errors
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new ApiError('Network error - unable to connect to server', 0);
+    }
+    throw error;
+  }
+}
 
 // In api.ts - Replace handleResponse with text-based parsing:
 
@@ -294,15 +295,19 @@ export const breeamApi = {
    */
   async healthCheck(): Promise<HealthResponse> {
     try {
-      const response = await fetch(`${API_BASE_URL}/health`, {
+      const response = await fetchWithTimeout(`${API_BASE_URL}/health`, {
         method: 'GET',
         mode: 'cors',
         cache: 'no-cache'
-      });
+      }, 10000); // 10 seconds timeout for health check
       return handleResponse<HealthResponse>(response);
     } catch (error) {
       console.error('Health check failed:', error);
-      throw error;
+      if (error instanceof ApiError) throw error;
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        throw new ApiError('Cannot connect to server - please check your connection', 0);
+      }
+      throw new ApiError('Health check failed', 500);
     }
   },
 
@@ -312,14 +317,14 @@ export const breeamApi = {
   async getVersions(): Promise<BreeamVersion[]> {
     try {
       console.log('📡 Fetching versions from:', `${API_BASE_URL}/api/versjoner`);
-      const response = await fetch(`${API_BASE_URL}/api/versjoner`, {
+      const response = await fetchWithTimeout(`${API_BASE_URL}/api/versjoner`, {
         method: 'GET',
         mode: 'cors',
         cache: 'default',
         headers: {
           'Accept': 'application/json',
         }
-      });
+      }, 30000); // 30 seconds timeout
       const data = await handleResponse<BreeamVersion[]>(response);
       console.log('📦 Versions response:', data);
       
@@ -487,10 +492,11 @@ export const breeamApi = {
     console.log('📤 Report format:', reportFormat);
     
     try {
-      const response = await fetch(url, {
+      // Use fetchWithTimeout for better error handling (5 minutes for assessment)
+      const response = await fetchWithTimeout(url, {
         method: 'POST',
         body: formData,
-      });
+      }, 300000); // 5 minutes timeout for assessment
       
       console.log('📊 Response status:', response.status);
       console.log('📦 Content-Type:', response.headers.get('content-type'));
@@ -564,12 +570,13 @@ export const breeamApi = {
         }
       }
       
-      // Validate the result structure
+      // Validate the result structure with more comprehensive checks
       console.log('📋 Validating assessment response...');
       if (!result || typeof result !== 'object') {
         throw new ApiError('Response is not a valid object', 500);
       }
       
+      // Check required fields
       if (!('success' in result) || !('assessment_id' in result)) {
         console.error('❌ Missing required fields in response!');
         console.error('Got keys:', Object.keys(result));
@@ -577,6 +584,27 @@ export const breeamApi = {
           'Response missing required fields (success/assessment_id)',
           500
         );
+      }
+      
+      // Validate arrays are actually arrays
+      if (result.files_processed && !Array.isArray(result.files_processed)) {
+        console.warn('⚠️ files_processed is not an array, converting...');
+        result.files_processed = [];
+      }
+      
+      if (result.criteria_evaluated && !Array.isArray(result.criteria_evaluated)) {
+        console.warn('⚠️ criteria_evaluated is not an array, converting...');
+        result.criteria_evaluated = [];
+      }
+      
+      if (result.criterion_assessments && !Array.isArray(result.criterion_assessments)) {
+        console.warn('⚠️ criterion_assessments is not an array, converting...');
+        result.criterion_assessments = [];
+      }
+      
+      if (result.criteria_results && !Array.isArray(result.criteria_results)) {
+        console.warn('⚠️ criteria_results is not an array, converting...');
+        result.criteria_results = [];
       }
       
       console.log('✅ Assessment created successfully');

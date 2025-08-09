@@ -319,6 +319,33 @@ function safeParseAssessment(a: unknown): any | null {
     }
   }
 }
+
+// Helper function to format chunk references to readable format
+function formatChunkReferences(chunkIds: number[] | string[], filesProcessed?: string[]): string {
+  if (!chunkIds || chunkIds.length === 0) return 'Ingen henvisning';
+  
+  // If we have file information, try to map chunks to files
+  if (filesProcessed && filesProcessed.length > 0) {
+    const fileNames = filesProcessed.map(f => {
+      const parts = f.split('/');
+      return parts[parts.length - 1]; // Get filename from path
+    });
+    
+    return chunkIds.map((id, index) => {
+      const fileIndex = Math.min(index, fileNames.length - 1);
+      const fileName = fileNames[fileIndex] || 'Dokument';
+      // Estimate page based on chunk ID (rough estimate: ~2 chunks per page)
+      const estimatedPage = Math.floor(Number(id) / 2) + 1;
+      return `${fileName} - Side ${estimatedPage}`;
+    }).join(', ');
+  }
+  
+  // Fallback to generic format
+  return chunkIds.map(id => {
+    const estimatedPage = Math.floor(Number(id) / 2) + 1;
+    return `Vedlegg ${id} - Side ${estimatedPage}`;
+  }).join(', ');
+}
                 
 // Phase options
 const PHASE_OPTIONS = [
@@ -1892,20 +1919,17 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                 // Extract references from assessment if it's structured
                 const assessmentData = safeParseAssessment(ca.assessment);
                 
-                // Format references with more readable format
+                // Format references with better chunk-to-page mapping
                 let references = 'Ingen henvisning';
+                const filesProcessed = results.files_processed || [];
+                
                 if (assessmentData?.henvisning_chunk_ids && assessmentData.henvisning_chunk_ids.length > 0) {
-                  references = assessmentData.henvisning_chunk_ids
-                    .map((id: number) => `Vedlegg ${id} - Side ${id}`)
-                    .join(', ');
+                  references = formatChunkReferences(assessmentData.henvisning_chunk_ids, filesProcessed);
                 } else if (assessmentData?.metode_etterlevd?.henvisning_chunk_ids?.length > 0) {
-                  references = assessmentData.metode_etterlevd.henvisning_chunk_ids
-                    .map((id: number) => `Vedlegg ${id} - Side ${id}`)
-                    .join(', ');
+                  references = formatChunkReferences(assessmentData.metode_etterlevd.henvisning_chunk_ids, filesProcessed);
                 } else if (assessmentData?.dokumentasjonsgrunnlag?.length > 0) {
-                  references = assessmentData.dokumentasjonsgrunnlag
-                    .map((d: any) => `Vedlegg ${d.chunk_id} - Side ${d.chunk_id}`)
-                    .join(', ');
+                  const chunkIds = assessmentData.dokumentasjonsgrunnlag.map((d: any) => d.chunk_id);
+                  references = formatChunkReferences(chunkIds, filesProcessed);
                 }
 
                 return (
