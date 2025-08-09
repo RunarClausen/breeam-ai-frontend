@@ -1831,74 +1831,89 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
               </div>
             </div>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 tracking-tight mb-4">Vurdering av kriterier</h2>
-
-          <div className="space-y-4 mb-8">
-            {results.criterion_assessments?.length ? (
-              results.criterion_assessments.map((ca, index) => {
-                const rawStatus = (ca.status || '').toLowerCase();
-                const statusKey =
-                  ca.status === '✅' || (rawStatus.includes('oppnådd') && !rawStatus.includes('ikke'))
-                    ? 'emerald'
-                    : ca.status === '⚠️' || rawStatus.includes('delvis')
-                    ? 'yellow'
-                    : ca.status === '❌' || rawStatus.includes('ikke')
-                    ? 'red'
-                    : 'gray';
-                const StatusIcon = statusKey === 'emerald' ? CheckCircle : statusKey === 'yellow' ? AlertCircle : statusKey === 'red' ? XCircle : HelpCircle;
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-8">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Vurdering av kriterier</h2>
+            {results.criteria_results && results.criteria_results.length > 0 ? (
+              results.criteria_results.map((criterion, index) => {
+                const status = criterion.status === '✅' ? 'Ivaretatt' : 
+                               criterion.status === '⚠️' ? 'Delvis ivaretatt' : 
+                               'Ikke ivaretatt';
+                const references = criterion.page_references ? 
+                                   criterion.page_references.join(', ') : 'Ingen henvisning';
 
                 return (
-                  <div key={index} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                    <div
-                      className="p-6 cursor-pointer hover:bg-gray-50 transition-colors"
-                      onClick={() => toggleSection(`criterion-${index}`)}
-                      role="button"
-                      aria-expanded={!!expandedSections[`criterion-${index}`]}
-                      aria-controls={`criterion-content-${index}`}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                            Kriterium {ca.criterion_id}: {ca.title || ca.criterion_title || 'Ukjent'}
-                          </h3>
-                          <div className="flex items-center gap-3 flex-wrap">
-                            <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${statusStyles[statusKey]}`}>
-                              <StatusIcon className="w-4 h-4" />
-                              {ca.status || '❓'}
-                            </div>
-                            {typeof ca.points === 'number' && (
-                              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-700">
-                                <Award className="w-4 h-4" />
-                                {ca.points} poeng
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="ml-4">
-                          {expandedSections[`criterion-${index}`] ? (
-                            <ChevronUp className="w-5 h-5 text-gray-500" />
-                          ) : (
-                            <ChevronDown className="w-5 h-5 text-gray-500" />
-                          )}
-                        </div>
-                      </div>
-                    </div>
+                  <div key={index} className="mb-4 pb-4 border-b border-gray-200 last:border-b-0">
+                    <h3 className="text-lg font-semibold text-gray-900">{criterion.title}</h3>
+                    <p className="text-sm text-gray-700 mt-1">{status}</p>
+                    <p className="text-sm text-gray-500 mt-1">Henvisning: {references}</p>
+                    
+                    {/* Show points if available */}
+                    {criterion.points !== undefined && (
+                      <p className="text-sm text-gray-600 mt-1">Poeng: {criterion.points}</p>
+                    )}
+                    
+                    {/* Show summary if available */}
+                    {criterion.summary && (
+                      <p className="text-sm text-gray-700 mt-2">{criterion.summary}</p>
+                    )}
+                  </div>
+                );
+              })
+            ) : results.criterion_assessments && results.criterion_assessments.length > 0 ? (
+              // Fallback to criterion_assessments if criteria_results not available
+              results.criterion_assessments.map((ca, index) => {
+                const status = ca.status === '✅' ? 'Ivaretatt' : 
+                               ca.status === '⚠️' ? 'Delvis ivaretatt' : 
+                               ca.status === '❌' ? 'Ikke ivaretatt' :
+                               ca.status?.toLowerCase().includes('oppnådd') && !ca.status.toLowerCase().includes('ikke') ? 'Ivaretatt' :
+                               ca.status?.toLowerCase().includes('delvis') ? 'Delvis ivaretatt' :
+                               ca.status?.toLowerCase().includes('ikke') ? 'Ikke ivaretatt' : 'Ukjent';
+                
+                // Extract references from assessment if it's structured
+                const assessmentData = safeParseAssessment(ca.assessment);
+                let references = 'Ingen henvisning';
+                if (assessmentData?.dokumentasjonsgrunnlag?.length > 0) {
+                  references = assessmentData.dokumentasjonsgrunnlag
+                    .map((d: any) => `Chunk ${d.chunk_id}`)
+                    .join(', ');
+                }
 
+                return (
+                  <div key={index} className="mb-4 pb-4 border-b border-gray-200 last:border-b-0">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Kriterium {ca.criterion_id}: {ca.title || ca.criterion_title || 'Ukjent'}
+                    </h3>
+                    <p className="text-sm text-gray-700 mt-1">{status}</p>
+                    <p className="text-sm text-gray-500 mt-1">Henvisning: {references}</p>
+                    
+                    {/* Show points if available */}
+                    {typeof ca.points === 'number' && (
+                      <p className="text-sm text-gray-600 mt-1">Poeng: {ca.points}</p>
+                    )}
+                    
+                    {/* Show short summary if available */}
+                    {assessmentData?.begrunnelse_kort && (
+                      <p className="text-sm text-gray-700 mt-2">{assessmentData.begrunnelse_kort}</p>
+                    )}
+                    
+                    {/* Expandable details */}
+                    <button
+                      onClick={() => toggleSection(`criterion-${index}`)}
+                      className="text-emerald-600 hover:text-emerald-700 text-sm mt-2"
+                    >
+                      {expandedSections[`criterion-${index}`] ? 'Skjul detaljer' : 'Vis detaljer'}
+                    </button>
+                    
                     {expandedSections[`criterion-${index}`] && (
-                      <div id={`criterion-content-${index}`} className="px-6 pb-6 border-t border-gray-100">
-                        <div className="pt-4 space-y-4">
-                          <TechnicalAssessmentView assessment={ca.assessment} />
-                        </div>
+                      <div className="mt-3 pt-3 border-t border-gray-100">
+                        <TechnicalAssessmentView assessment={ca.assessment} />
                       </div>
                     )}
                   </div>
                 );
               })
             ) : (
-              <div className="bg-gray-50 rounded-lg p-8 text-center">
-                <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                <p className="text-gray-600">Ingen kriterievurderinger funnet.</p>
-              </div>
+              <div className="text-center text-gray-600">Ingen kriterievurderinger funnet.</div>
             )}
           </div>
           
