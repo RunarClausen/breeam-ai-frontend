@@ -6,6 +6,8 @@
  * FIXED: Response object double-read issue, timeout issues, and debugging
  */
 
+import type { AssessmentAPIResponse } from "@/types/assessment";
+
 // Get API base URL from environment or use default
 // For GitHub Codespaces: Points to Railway backend by default
 // For local backend testing: Set NEXT_PUBLIC_API_URL=http://localhost:8001
@@ -630,6 +632,20 @@ export const useApi = () => {
     }
   };
 };
+
+// Helper function that returns the new AssessmentAPIResponse type
+export async function createAssessment(formData: FormData): Promise<AssessmentAPIResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/vurder`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `Feil ved vurdering (${res.status})`);
+  }
+  const json = (await res.json()) as AssessmentAPIResponse;
+  return json;
+}
 
 // Utility functions
 export const utils = {

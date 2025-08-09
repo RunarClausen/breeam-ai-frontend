@@ -12,6 +12,8 @@ import {
 
 // Import API with utils and useApi
 import { breeamApi, utils, useApi, ApiError } from '../lib/api'
+import type { AssessmentAPIResponse } from '@/types/assessment'
+import AssessmentResultView from '@/components/AssessmentResult'
 
 // Constants
 const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB
@@ -1303,6 +1305,7 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({})
   const [showChunks, setShowChunks] = useState(false)
   const [selectedCriterion, setSelectedCriterion] = useState<CriterionAssessment | null>(null)
+  const [useStructuredView, setUseStructuredView] = useState(false)
   const api = useApi()
   
   // Debug logging commented out to prevent console spam
@@ -1793,11 +1796,60 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
             </div>
           )}
           
-          {/* Criteria Results with chunks */}
-          <div className="space-y-4 mb-8">
+          {/* Toggle for view mode */}
+          <div className="flex items-center justify-between mb-4">
             <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Vurdering av kriterier</h2>
-            
-            {results.criteria_results?.length ? (
+            <button
+              onClick={() => setUseStructuredView(!useStructuredView)}
+              className="px-4 py-2 text-sm bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition-colors"
+            >
+              {useStructuredView ? 'Bytt til klassisk visning' : 'Bytt til strukturert visning'}
+            </button>
+          </div>
+
+          {/* Criteria Results - structured or classic view */}
+          <div className="space-y-4 mb-8">
+            {useStructuredView && results.criteria_results?.length && results.criterion_assessments?.length ? (
+              // New structured view
+              <AssessmentResultView data={{
+                success: true,
+                message: '',
+                assessment_id: '',
+                assessment: results.assessment || '',
+                assessment_summary: results.assessment || '',
+                report_file: results.report_file,
+                word_file: results.word_file,
+                criteria_results: results.criteria_results.map(cr => ({
+                  id: cr.id || cr.criterion_id || '',
+                  title: cr.title || cr.criterion_title || '',
+                  status: (cr.status === '✅' || cr.status?.includes('Oppnådd')) ? 'approved' :
+                          (cr.status === '⚠️' || cr.status?.includes('Delvis')) ? 'partial' :
+                          (cr.status === '❌' || cr.status?.includes('Ikke')) ? 'rejected' : 'unknown',
+                  points: cr.points || 0,
+                  summary: cr.summary || '',
+                  page_references: cr.page_references || []
+                })),
+                criterion_assessments: results.criterion_assessments,
+                points_summary: {
+                  achieved: (results.points_summary as any)?.achieved_points || 0,
+                  possible: (results.points_summary as any)?.total_points || 0,
+                  percentage: (results.points_summary as any)?.percentage || 0,
+                  text: (results.points_summary as any)?.summary || ''
+                },
+                metadata: {
+                  assessment_id: '',
+                  version: state.selectedVersion || '',
+                  topic: state.selectedTopic || '',
+                  phase: results.metadata?.phase || state.selectedPhase,
+                  processing_time: String(results.metadata?.processing_time || ''),
+                  processing_seconds: Number(results.metadata?.processing_seconds || results.processing_time || 0),
+                  timestamp: new Date().toISOString()
+                },
+                files_processed: results.files_processed || [],
+                criteria_evaluated: results.criteria_evaluated || [],
+                processing_time: results.processing_time || 0
+              } as AssessmentAPIResponse} />
+            ) : results.criteria_results?.length ? (
               // Use criteria_results directly when available (lightweight format)
               results.criteria_results.map((criterion, index) => {
                   const statusColorKey = criterion.status === '✅' || criterion.status.toLowerCase().includes('oppnådd') && !criterion.status.toLowerCase().includes('ikke') ? 'emerald' : 
