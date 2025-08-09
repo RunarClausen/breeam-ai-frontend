@@ -208,7 +208,10 @@ export interface AssessmentResponse {
     status?: number;
     type?: string;
   };
-  metadata: Record<string, any>;
+  metadata: Record<string, any> & {
+    processing_seconds?: number;
+    processing_time?: number | string;
+  };
   files_processed: string[];
   criteria_evaluated: number[] | string[];  // Can be either
   processing_time: number;

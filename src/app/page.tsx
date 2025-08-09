@@ -180,6 +180,14 @@ interface AssessmentResult {
   report_format?: 'pdf' | 'word'
   displayed_chunks?: Chunk[]
   criterion_assessments?: CriterionAssessment[]
+  criteria_results?: Array<{
+    id: string
+    title?: string
+    status: string
+    points: number
+    summary: string
+    page_references?: string[]
+  }>
   phase_validation?: {
     valid_criteria: number
     invalid_criteria: number
@@ -188,7 +196,8 @@ interface AssessmentResult {
   audit_trail?: AuditTrailEntry[]
   rejection_reasons?: RejectionReason[]
   metadata?: {
-    processing_time?: number
+    processing_time?: number | string
+    processing_seconds?: number
     ai_model?: string
     total_chunks?: number
     relevant_chunks?: number
@@ -1682,8 +1691,8 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                   <span>{results.criteria_evaluated?.length || 0} kriterier vurdert</span>
                   <span aria-hidden="true">•</span>
                   <span>{(() => {
-                    // Use processing_seconds if available, otherwise parse processing_time
-                    const raw = (results as any).processing_seconds ?? results.metadata?.processing_time;
+                    // Use metadata.processing_seconds if available, otherwise parse metadata.processing_time
+                    const raw = results.metadata?.processing_seconds ?? results.metadata?.processing_time;
                     const seconds = typeof raw === 'number' 
                       ? raw 
                       : parseFloat(String(raw ?? '').replace(/[^\d.]/g, '')) || 0;
@@ -1894,32 +1903,9 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
           <div className="space-y-4 mb-8">
             <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Vurdering av kriterier</h2>
             
-            {(() => {
-              // Support both criteria_results and criterion_assessments
-              const list = results.criteria_results?.length ? results.criteria_results :
-                results.criterion_assessments?.map(ca => ({
-                  id: ca.criterion_id,
-                  title: ca.criterion_title || ca.title || '',
-                  status: ca.status || ca.score_status || "unknown",
-                  points: ca.points ?? 0,
-                  summary: ca.assessment || ca.summary || '',
-                  page_references: (ca.used_chunks || ca.chunks || []).slice(0, 3).map((ch: any) => {
-                    const source = ch.source || "";
-                    const page = ch.page ?? "";
-                    const filename = source.split("/").pop() || source;
-                    return page ? `${filename} (s. ${page})` : filename;
-                  }),
-                  // Keep original fields for compatibility
-                  used_chunks: ca.used_chunks,
-                  guidance_match_info: ca.guidance_match_info,
-                  phase_validation: ca.phase_validation,
-                  rejection_reasons: ca.rejection_reasons,
-                  evidence_count: ca.evidence_count,
-                  assessment: ca.assessment
-                })) || [];
-              
-              return list.length > 0 ? (
-                list.map((criterion: any, index: number) => {
+            {results.criteria_results?.length ? (
+              // Use criteria_results directly when available (lightweight format)
+              results.criteria_results.map((criterion, index) => {
                   const statusColorKey = criterion.status === '✅' || criterion.status.toLowerCase().includes('oppnådd') && !criterion.status.toLowerCase().includes('ikke') ? 'emerald' : 
                                     criterion.status === '⚠️' || criterion.status.toLowerCase().includes('delvis') ? 'yellow' : 
                                   criterion.status === '❌' || criterion.status.toLowerCase().includes('ikke') ? 'red' : 'gray';
@@ -1970,17 +1956,11 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                               </div>
                             )}
                             
-                            {((criterion.used_chunks && criterion.used_chunks.length > 0) || (criterion.page_references && criterion.page_references.length > 0)) && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openChunksModal(criterion);
-                                }}
-                                className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors"
-                              >
+                            {criterion.page_references && criterion.page_references.length > 0 && (
+                              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium bg-emerald-100 text-emerald-700">
                                 <FileSearch className="w-4 h-4" />
-                                {(criterion.used_chunks || criterion.page_references || []).length} kilder
-                              </button>
+                                {criterion.page_references.join(', ')}
+                              </div>
                             )}
                             
                             {criterion.phase_validation && !criterion.phase_validation.is_valid && (
@@ -2003,7 +1983,7 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                     {expandedSections[`criterion-${index}`] && (
                       <div id={`criterion-content-${index}`} className="px-6 pb-6 border-t border-gray-100">
                         <div className="pt-4 space-y-4">
-                          <MarkdownRenderer content={criterion.summary || criterion.assessment || ''} />
+                          <p className="text-gray-700 leading-relaxed">{criterion.summary}</p>
                           
                           {criterion.phase_validation && !criterion.phase_validation.is_valid && (
                             <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
@@ -2065,6 +2045,76 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                               <span className="font-medium">Dokumenter analysert:</span> {criterion.evidence_count}
                             </div>
                           )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            ) : results.criterion_assessments?.length ? (
+              // Fallback to criterion_assessments (full format)
+              results.criterion_assessments.map((ca, index) => {
+                const statusColorKey = ca.status === '✅' || ca.status.toLowerCase().includes('oppnådd') && !ca.status.toLowerCase().includes('ikke') ? 'emerald' : 
+                                  ca.status === '⚠️' || ca.status.toLowerCase().includes('delvis') ? 'yellow' : 
+                                  ca.status === '❌' || ca.status.toLowerCase().includes('ikke') ? 'red' : 'gray';
+                const StatusIcon = statusColorKey === 'emerald' ? CheckCircle : 
+                                 statusColorKey === 'yellow' ? AlertCircle : 
+                                 statusColorKey === 'red' ? XCircle : HelpCircle;
+                
+                return (
+                  <div key={index} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div 
+                      className="p-6 cursor-pointer hover:bg-gray-50 transition-colors"
+                      onClick={() => toggleSection(`criterion-${index}`)}
+                      role="button"
+                      aria-expanded={expandedSections[`criterion-${index}`]}
+                      aria-controls={`criterion-content-${index}`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                            Kriterium {ca.criterion_id}: {ca.title}
+                          </h3>
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${statusStyles[statusColorKey]}`}>
+                              <StatusIcon className="w-4 h-4" />
+                              {ca.status}
+                            </div>
+                            
+                            {ca.points !== undefined && (
+                              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-700">
+                                <Award className="w-4 h-4" />
+                                {ca.points} poeng
+                              </span>
+                            )}
+                            
+                            {ca.used_chunks && ca.used_chunks.length > 0 && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openChunksModal(ca);
+                                }}
+                                className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors"
+                              >
+                                <FileSearch className="w-4 h-4" />
+                                {ca.used_chunks.length} kilder
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="ml-4">
+                          {expandedSections[`criterion-${index}`] ? 
+                            <ChevronUp className="w-5 h-5 text-gray-500" /> : 
+                            <ChevronDown className="w-5 h-5 text-gray-500" />
+                          }
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {expandedSections[`criterion-${index}`] && (
+                      <div id={`criterion-content-${index}`} className="px-6 pb-6 border-t border-gray-100">
+                        <div className="pt-4 space-y-4">
+                          <MarkdownRenderer content={ca.assessment} />
                         </div>
                       </div>
                     )}
@@ -2144,7 +2194,7 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                 <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-3" />
                 <p className="text-gray-600">Ingen kriterievurderinger funnet.</p>
               </div>
-            )})()}
+            )}
           </div>
           
           {/* Recommendations */}
