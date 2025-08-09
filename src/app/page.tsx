@@ -1681,7 +1681,13 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                   <span aria-hidden="true">•</span>
                   <span>{results.criteria_evaluated?.length || 0} kriterier vurdert</span>
                   <span aria-hidden="true">•</span>
-                  <span>{results.metadata?.processing_time?.toFixed(1) || '0'}s prosesseringstid</span>
+                  <span>{(() => {
+                    const raw = results.metadata?.processing_time;
+                    const seconds = typeof raw === 'number' 
+                      ? raw 
+                      : parseFloat(String(raw ?? '').replace(/[^\d.]/g, '')) || 0;
+                    return `${seconds.toFixed(1)}s`;
+                  })()} prosesseringstid</span>
                   {results.metadata?.phase && (
                     <>
                       <span aria-hidden="true">•</span>
