@@ -451,42 +451,120 @@ export const breeamApi = {
   },
   
   /**
-   * Create a new assessment - ULTRA SIMPLE version without wrappers
+   * Create a new assessment - ROBUST version with proper error handling
    */
   async createAssessment(formData: FormData, reportFormat: ReportFormat = 'pdf'): Promise<AssessmentResult> {
     const url = `${API_BASE_URL}/api/vurder`;
     
-    console.log('📤 ULTRA SIMPLE createAssessment');
+    console.log('📤 Creating assessment');
     console.log('📤 URL:', url);
+    console.log('📤 Report format:', reportFormat);
     
     try {
-      // NO WRAPPERS, NO TIMEOUT, JUST PLAIN FETCH
-      console.log('🚀 Calling plain fetch...');
       const response = await fetch(url, {
         method: 'POST',
         body: formData,
       });
       
-      console.log('📊 Got response:', response.status);
+      console.log('📊 Response status:', response.status);
+      console.log('📦 Content-Type:', response.headers.get('content-type'));
+      console.log('📦 Content-Length:', response.headers.get('content-length'));
       
       if (!response.ok) {
-        throw new ApiError(`HTTP ${response.status}`, response.status);
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const errorText = await response.text();
+          console.error('❌ Error response text:', errorText);
+          try {
+            const errorData = JSON.parse(errorText);
+            errorMessage = errorData.message || errorData.detail || errorData.error || errorMessage;
+          } catch {
+            errorMessage = errorText.substring(0, 200) || errorMessage;
+          }
+        } catch (e) {
+          console.error('❌ Could not read error response:', e);
+        }
+        throw new ApiError(errorMessage, response.status);
       }
       
-      // Use text() directly - no wrapper
-      console.log('📖 Reading text...');
-      const text = await response.text();
-      console.log('✅ Got text, length:', text.length);
+      // Try .json() first with fallback to text parsing
+      let result: AssessmentResult;
+      const contentType = response.headers.get('content-type');
       
-      // Parse it
-      const result = JSON.parse(text) as AssessmentResult;
-      console.log('✅ Parsed result:', result.assessment_id);
+      if (contentType && contentType.includes('application/json')) {
+        // Try direct JSON parsing first
+        console.log('📖 Reading response as JSON...');
+        try {
+          result = await response.json();
+          console.log('✅ JSON parsed directly');
+        } catch (jsonError) {
+          console.warn('⚠️ Direct JSON parsing failed, trying text fallback:', jsonError);
+          // Clone response for text fallback (response already consumed)
+          throw new ApiError('Response body already consumed - cannot retry parsing', 500);
+        }
+      } else {
+        // Fall back to text parsing for non-JSON content types
+        console.log('📖 Reading response as text (non-JSON content type)...');
+        const text = await response.text();
+        console.log('✅ Text received, length:', text.length);
+        console.log('📄 Text preview:', text.substring(0, 200));
+        
+        try {
+          result = JSON.parse(text) as AssessmentResult;
+          console.log('✅ Text parsed as JSON successfully');
+        } catch (parseError) {
+          console.error('❌ Failed to parse text as JSON:', parseError);
+          console.error('📄 Full text response:', text);
+          throw new ApiError(
+            `Invalid JSON response: ${parseError instanceof Error ? parseError.message : 'Unknown parse error'}`,
+            500
+          );
+        }
+      }
+      
+      // Validate the result structure
+      console.log('📋 Validating assessment response...');
+      if (!result || typeof result !== 'object') {
+        throw new ApiError('Response is not a valid object', 500);
+      }
+      
+      if (!('success' in result) || !('assessment_id' in result)) {
+        console.error('❌ Missing required fields in response!');
+        console.error('Got keys:', Object.keys(result));
+        throw new ApiError(
+          'Response missing required fields (success/assessment_id)',
+          500
+        );
+      }
+      
+      console.log('✅ Assessment created successfully');
+      console.log('  - Success:', result.success);
+      console.log('  - Assessment ID:', result.assessment_id);
+      console.log('  - Report format:', result.report_format || reportFormat);
       
       return result;
       
     } catch (error) {
-      console.error('❌ ULTRA SIMPLE failed:', error);
-      throw error;
+      console.error('❌ Assessment creation failed:', error);
+      
+      // Ensure we throw ApiError for proper handling
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      
+      // Handle network errors
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        throw new ApiError(
+          'Nettverksfeil - kunne ikke koble til serveren',
+          0
+        );
+      }
+      
+      // Generic error wrapper
+      throw new ApiError(
+        `Uventet feil: ${error instanceof Error ? error.message : 'Ukjent feil'}`,
+        500
+      );
     }
   }
 };

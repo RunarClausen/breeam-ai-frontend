@@ -3644,6 +3644,9 @@ function EnhancedBREEAMAI() {
       dispatch({ type: 'RESET_RETRY' })
     }
 
+    // Declare progressInterval outside try block so it's accessible in finally
+    let progressInterval: ReturnType<typeof setInterval> | null = null
+
     try {
       // Step 1: Prepare form data (5%)
       dispatch({ type: 'SET_PROGRESS', payload: { progress: 5, message: 'Klargjør dokumenter...' } })
@@ -3669,7 +3672,7 @@ function EnhancedBREEAMAI() {
       dispatch({ type: 'SET_PROGRESS', payload: { progress: 20, message: 'Analyserer dokumenter...' } })
       
       // Start progress simulation (20% to 90% over 30 seconds)
-      const progressInterval = simulateProgress(20, 90, 30000)
+      progressInterval = simulateProgress(20, 90, 30000)
       
       try {
         // DIAGNOSTIC: Isolate the API call to find the problem
@@ -3694,7 +3697,10 @@ function EnhancedBREEAMAI() {
         }
         
         // Stop simulation and jump to 95%
-        clearInterval(progressInterval)
+        if (progressInterval) {
+          clearInterval(progressInterval)
+          progressInterval = null
+        }
         
         // Step 4: Response received (95%)
         dispatch({ type: 'SET_PROGRESS', payload: { progress: 95, message: 'Behandler resultater...' } })
@@ -3766,7 +3772,10 @@ function EnhancedBREEAMAI() {
         
       } catch (error) {
         // Stop progress simulation if still running
-        clearInterval(progressInterval)
+        if (progressInterval) {
+          clearInterval(progressInterval)
+          progressInterval = null
+        }
         throw error
       }
       
@@ -3802,11 +3811,21 @@ function EnhancedBREEAMAI() {
       }
       
     } finally {
+      // ALWAYS clean up: stop spinner and clear interval
       dispatch({ type: 'SET_ASSESSING', payload: false })
       
-      // Clear any remaining intervals
-      if (progressIntervalRef.current) {
-        clearInterval(progressIntervalRef.current)
+      // Clear progress interval if still running
+      if (progressInterval) {
+        clearInterval(progressInterval)
+        progressInterval = null
+      }
+      
+      // Ensure progress is at 100% if we were successful, or 0% if we failed
+      // This prevents UI from getting stuck at 90%
+      const currentProgress = state.progress
+      if (currentProgress > 0 && currentProgress < 100) {
+        // If we're stuck somewhere between 0 and 100, set to 100 to complete the UI
+        dispatch({ type: 'SET_PROGRESS', payload: { progress: 100, message: '' } })
       }
     }
   }, [state, addToast, simulateProgress])
