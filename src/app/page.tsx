@@ -1838,8 +1838,11 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                 const status = criterion.status === '✅' ? 'Ivaretatt' : 
                                criterion.status === '⚠️' ? 'Delvis ivaretatt' : 
                                'Ikke ivaretatt';
-                const references = criterion.page_references ? 
-                                   criterion.page_references.join(', ') : 'Ingen henvisning';
+                               
+                // Format references with attachment and page numbers
+                const references = criterion.page_references && criterion.page_references.length > 0 ? 
+                  criterion.page_references.map((ref) => ref).join(', ') : 
+                  'Ingen henvisning';
 
                 return (
                   <div key={index} className="mb-4 pb-4 border-b border-gray-200 last:border-b-0">
@@ -1856,6 +1859,23 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                     {criterion.summary && (
                       <p className="text-sm text-gray-700 mt-2">{criterion.summary}</p>
                     )}
+                    
+                    {/* Expandable details button */}
+                    <button
+                      onClick={() => toggleSection(`criterion-${index}`)}
+                      className="text-emerald-600 hover:text-emerald-700 text-sm mt-2"
+                    >
+                      {expandedSections[`criterion-${index}`] ? 'Skjul detaljer' : 'Vis detaljer'}
+                    </button>
+                    
+                    {/* Expanded details section */}
+                    {expandedSections[`criterion-${index}`] && (
+                      <div className="mt-3 pt-3 border-t border-gray-100 p-4 bg-gray-50 rounded-lg">
+                        <p className="text-sm text-gray-700">
+                          Detaljert vurdering tilgjengelig i nedlastet rapport.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 );
               })
@@ -1871,10 +1891,20 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                 
                 // Extract references from assessment if it's structured
                 const assessmentData = safeParseAssessment(ca.assessment);
+                
+                // Format references with more readable format
                 let references = 'Ingen henvisning';
-                if (assessmentData?.dokumentasjonsgrunnlag?.length > 0) {
+                if (assessmentData?.henvisning_chunk_ids && assessmentData.henvisning_chunk_ids.length > 0) {
+                  references = assessmentData.henvisning_chunk_ids
+                    .map((id: number) => `Vedlegg ${id} - Side ${id}`)
+                    .join(', ');
+                } else if (assessmentData?.metode_etterlevd?.henvisning_chunk_ids?.length > 0) {
+                  references = assessmentData.metode_etterlevd.henvisning_chunk_ids
+                    .map((id: number) => `Vedlegg ${id} - Side ${id}`)
+                    .join(', ');
+                } else if (assessmentData?.dokumentasjonsgrunnlag?.length > 0) {
                   references = assessmentData.dokumentasjonsgrunnlag
-                    .map((d: any) => `Chunk ${d.chunk_id}`)
+                    .map((d: any) => `Vedlegg ${d.chunk_id} - Side ${d.chunk_id}`)
                     .join(', ');
                 }
 
@@ -1905,8 +1935,33 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                     </button>
                     
                     {expandedSections[`criterion-${index}`] && (
-                      <div className="mt-3 pt-3 border-t border-gray-100">
-                        <TechnicalAssessmentView assessment={ca.assessment} />
+                      <div className="mt-3 pt-3 border-t border-gray-100 p-4 bg-gray-50 rounded-lg">
+                        {assessmentData?.kravvurdering && assessmentData.kravvurdering.length > 0 && (
+                          <div className="mb-4">
+                            <h4 className="font-medium text-gray-700 mb-2">Kravvurdering:</h4>
+                            {assessmentData.kravvurdering.map((item: any, idx: number) => (
+                              <div key={idx} className="mb-1">
+                                <p className="text-sm">{item.krav}: {item.oppfylt ? 'Oppfylt' : 'Ikke oppfylt'}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        
+                        {assessmentData?.dokumentasjonsgrunnlag && assessmentData.dokumentasjonsgrunnlag.length > 0 && (
+                          <div>
+                            <h4 className="font-medium text-gray-700 mb-2">Dokumentasjonsgrunnlag:</h4>
+                            {assessmentData.dokumentasjonsgrunnlag.map((doc: any, idx: number) => (
+                              <div key={idx} className="mb-1">
+                                <p className="text-sm">{doc.dekker_krav}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        
+                        {(!assessmentData?.kravvurdering || assessmentData.kravvurdering.length === 0) && 
+                         (!assessmentData?.dokumentasjonsgrunnlag || assessmentData.dokumentasjonsgrunnlag.length === 0) && (
+                          <TechnicalAssessmentView assessment={ca.assessment} />
+                        )}
                       </div>
                     )}
                   </div>
