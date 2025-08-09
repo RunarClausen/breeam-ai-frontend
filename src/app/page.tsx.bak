@@ -284,41 +284,7 @@ const phaseColorMap = {
     description: 'text-blue-700',
     checkmark: 'bg-blue-500'
   }
-} as const
-
-// --- utils for assessment JSON ---
-function stripCodeFences(s: string): string {
-  if (!s) return s;
-  let t = s.trim();
-  // fjern ```json / ``` og trailing fences
-  if (t.startsWith("```")) {
-    t = t.replace(/^```json/i, "").replace(/^```/, "");
-    t = t.replace(/```$/m, "").trim();
-  }
-  // plukk ut første {...} hvis det er blandet inn overskrifter/tekst
-  const start = t.indexOf("{");
-  const end = t.lastIndexOf("}");
-  if (start !== -1 && end !== -1 && end > start) {
-    t = t.slice(start, end + 1);
-  }
-  return t;
-}
-
-function safeParseAssessment(a: unknown): any | null {
-  if (!a) return null;
-  if (typeof a === "object") return a as any;
-  if (typeof a !== "string") return null;
-  try {
-    return JSON.parse(a);
-  } catch {
-    try {
-      const cleaned = stripCodeFences(a);
-      return JSON.parse(cleaned);
-    } catch {
-      return null;
-    }
-  }
-}
+} as const                
                 
 // Phase options
 const PHASE_OPTIONS = [
@@ -1009,6 +975,243 @@ const ToastNotification: React.FC<ToastNotificationProps> = ({ message, type = "
   );
 };
 
+// --- DROP-IN REPLACEMENT: MarkdownRenderer ---
+// Tåler både string og objekt fra backend (f.eks. assessment som strukturert JSON)
+
+type MarkdownRenderable = string | Record<string, any> | null | undefined;
+
+function isPlainObject(v: unknown): v is Record<string, any> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
+function objectToMarkdown(obj: Record<string, any>, depth = 0): string {
+  const h = (lvl: number, text: string) => `${"#".repeat(Math.min(6, lvl))} ${text}`;
+  const pad = "  ".repeat(depth);
+
+  const lines: string[] = [];
+
+  // Heuristikk: kjente felt fra kriterievurdering
+  if (typeof obj.status === "string") {
+    lines.push(`${pad}${h(depth + 3, `Status: ${obj.status}`)}`);
+  }
+  if (typeof obj.title === "string" || typeof obj.criterion_title === "string") {
+    lines.push(
+      `${pad}${h(depth + 2, obj.title || obj.criterion_title)}`
+    );
+  }
+
+  // Kort begrunnelse først om den finnes
+  if (typeof obj.begrunnelse_kort === "string" && obj.begrunnelse_kort.trim()) {
+    lines.push(`${pad}${obj.begrunnelse_kort.trim()}`);
+  }
+
+  // Generisk dumping av nøkler (skipper store/tekniske blokker)
+  const skipKeys = new Set([
+    "used_chunks",
+    "chunks",
+    "guidance_match_info",
+    "phase_validation",
+    "evidence_count",
+    "points",
+    "score_status",
+    "criterion_id",
+    "title",
+    "criterion_title",
+    "status",
+    "begrunnelse_kort",
+  ]);
+
+  for (const [key, val] of Object.entries(obj)) {
+    if (skipKeys.has(key)) continue;
+    if (val == null) continue;
+
+    if (typeof val === "string") {
+      if (!val.trim()) continue;
+      lines.push(`${pad}${h(depth + 3, key.replace(/_/g, " "))}`);
+      lines.push(`${pad}${val.trim()}`);
+    } else if (Array.isArray(val)) {
+      if (val.length === 0) continue;
+      lines.push(`${pad}${h(depth + 3, key.replace(/_/g, " "))}`);
+      for (const item of val) {
+        if (isPlainObject(item)) {
+          // Innrykket underpunkt
+          lines.push(objectToMarkdown(item, depth + 1));
+        } else {
+          lines.push(`${pad}- ${String(item)}`);
+        }
+      }
+    } else if (isPlainObject(val)) {
+      lines.push(`${pad}${h(depth + 3, key.replace(/_/g, " "))}`);
+      lines.push(objectToMarkdown(val, depth + 1));
+    } else {
+      lines.push(`${pad}${h(depth + 3, key.replace(/_/g, " "))}`);
+      lines.push(`${pad}${String(val)}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function normalizeToMarkdown(content: MarkdownRenderable): string {
+  if (content == null) return "";
+
+  if (typeof content === "string") {
+    return content;
+  }
+
+  // Objekt: gjør et pent, lesbart markdown-sammendrag
+  try {
+    return objectToMarkdown(content);
+  } catch {
+    // Absolutt fallback
+    return "```json\n" + JSON.stringify(content, null, 2) + "\n```";
+  }
+}
+
+function renderMarkdownLines(text: string | any): React.ReactElement[] {
+  // før vi splitter: håndter ikke-string trygt
+  if (typeof text !== 'string') {
+    // prøv å vise strukturert json pent
+    try {
+      return [<pre key="json" className="whitespace-pre-wrap text-sm">
+        {JSON.stringify(text, null, 2)}
+      </pre>];
+    } catch {
+      return [<pre key="unknown" className="whitespace-pre-wrap text-sm">[ukjent innhold]</pre>];
+    }
+  }
+  
+  // Hvis vi ikke har overskrifter, parse enkelt linje for linje
+  const hasHeadings = /(^|\n)#{2,3}\s+/.test(text);
+  const out: React.ReactElement[] = [];
+
+  if (!hasHeadings) {
+    // Enkel liste/avsnitt-parsing med støtte for - bullets
+    const lines = text.split("\n");
+    let listBuffer: string[] = [];
+
+    const flushList = () => {
+      if (listBuffer.length) {
+        out.push(
+          <ul className="list-disc pl-6 my-2" key={`ul-${out.length}`}>
+            {listBuffer.map((item, i) => (
+              <li key={i}>{item.replace(/^-+\s*/, "")}</li>
+            ))}
+          </ul>
+        );
+        listBuffer = [];
+      }
+    };
+
+    lines.forEach((line, idx) => {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        flushList();
+        return;
+      }
+      if (/^-\s+/.test(trimmed)) {
+        listBuffer.push(trimmed);
+      } else {
+        flushList();
+        out.push(
+          <p className="my-2 leading-relaxed" key={`p-${idx}`}>
+            {trimmed}
+          </p>
+        );
+      }
+    });
+    flushList();
+    return out;
+  }
+
+  // Har headings: del på ### (subseksjoner), bevar rekkefølge
+  const sections = text.split(/(?:^|\n)###\s+/).filter(Boolean);
+
+  sections.forEach((section, sectionIndex) => {
+    const lines = section.split("\n");
+    const first = lines[0] || "";
+    let title = first.trim();
+    let bodyLines = lines.slice(1);
+
+    // Hvis første linje egentlig var en "## " heading som havnet her
+    if (title.startsWith("## ")) {
+      title = title.replace(/^##\s+/, "").trim();
+    }
+
+    out.push(
+      <h3 className="text-lg font-semibold mt-6" key={`h3-${sectionIndex}`}>
+        {title}
+      </h3>
+    );
+
+    // Enkel liste- og avsnitts-parsing i seksjonen
+    let listBuffer: string[] = [];
+    const flushList = () => {
+      if (listBuffer.length) {
+        out.push(
+          <ul className="list-disc pl-6 my-2" key={`ul-sec-${sectionIndex}-${out.length}`}>
+            {listBuffer.map((item, i) => (
+              <li key={i}>{item.replace(/^-+\s*/, "")}</li>
+            ))}
+          </ul>
+        );
+        listBuffer = [];
+      }
+    };
+
+    bodyLines.forEach((line, idx) => {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        flushList();
+        return;
+      }
+      if (/^-\s+/.test(trimmed)) {
+        listBuffer.push(trimmed);
+      } else if (/^##\s+/.test(trimmed)) {
+        // Ny hovedseksjon inni: rendres som H2
+        flushList();
+        out.push(
+          <h2 className="text-xl font-bold mt-8" key={`h2-${sectionIndex}-${idx}`}>
+            {trimmed.replace(/^##\s+/, "")}
+          </h2>
+        );
+      } else {
+        flushList();
+        out.push(
+          <p className="my-2 leading-relaxed" key={`p-sec-${sectionIndex}-${idx}`}>
+            {trimmed}
+          </p>
+        );
+      }
+    });
+
+    flushList();
+  });
+
+  return out;
+}
+
+function MarkdownRenderer({ content }: { content: MarkdownRenderable }) {
+  const markdown = React.useMemo(() => normalizeToMarkdown(content), [content]);
+
+  // Ekstra guard – aldri crash på non-string
+  const safeText = typeof markdown === "string" ? markdown : String(markdown ?? "");
+
+  const parsed = React.useMemo(() => {
+    try {
+      return renderMarkdownLines(safeText);
+    } catch (e) {
+      // Absolutt fallback – vis som JSON pre om parser skulle feile
+      return [
+        <pre className="text-sm bg-neutral-50 p-3 rounded border" key="pre">
+          {typeof content === "string" ? content : JSON.stringify(content, null, 2)}
+        </pre>,
+      ];
+    }
+  }, [safeText, content]);
+
+  return <div>{parsed}</div>;
+}
 
 // ===== ASSESSMENT PROGRESS =====
 interface AssessmentProgressProps {
@@ -1223,7 +1426,7 @@ function Badge({ok}: {ok?: boolean}) {
   );
 }
 
-function AssessmentView({data}: {data: any}) {
+export function AssessmentView({data}: {data: any}) {
   // defensiv parsing dersom backend en sjelden gang sender streng
   if (typeof data === 'string') {
     try { data = JSON.parse(stripFences(data)); } catch { data = { begrunnelse_kort: stripFences(data) }; }
@@ -1327,116 +1530,65 @@ function AssessmentView({data}: {data: any}) {
   );
 }
 
-function TechnicalAssessmentView({ assessment }: { assessment: any }) {
-  const data = safeParseAssessment(assessment);
-
-  if (!data) {
-    // Ingen gyldig JSON – vis plain text uten markdown (ikke <Markdown>)
-    return (
-      <pre className="text-xs bg-gray-50 p-3 rounded border border-gray-200 overflow-auto">
-        {typeof assessment === "string" ? stripCodeFences(assessment) : JSON.stringify(assessment, null, 2)}
-      </pre>
-    );
-  }
+function StructuredCriterionCard({ ca, data }: { ca: any; data: any }) {
+  const krav = Array.isArray(data?.kravvurdering) ? data.kravvurdering : [];
+  const dok = Array.isArray(data?.dokumentasjonsgrunnlag) ? data.dokumentasjonsgrunnlag : [];
+  const mangler = Array.isArray(data?.mangler) ? data.mangler : [];
+  const anbefalinger = Array.isArray(data?.anbefalinger) ? data.anbefalinger : [];
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold text-gray-700">Status:</span>
-        <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-800 text-sm">{data.status}</span>
+      <div className="flex items-center gap-3">
+        <StatusBadge status={data?.status} />
+        {typeof data?.begrunnelse_kort === 'string' && (
+          <p className="text-sm text-gray-600">{data.begrunnelse_kort}</p>
+        )}
       </div>
 
-      {data.begrunnelse_kort && (
-        <div>
-          <h4 className="text-sm font-semibold text-gray-700 mb-1">Begrunnelse (kort)</h4>
-          <p className="text-gray-800">{data.begrunnelse_kort}</p>
-        </div>
-      )}
-
-      {data.kravvurdering?.length > 0 && (
-        <div>
-          <h4 className="text-sm font-semibold text-gray-700 mb-2">Kravvurdering</h4>
-          <ul className="divide-y divide-gray-100 border border-gray-200 rounded">
-            {data.kravvurdering.map((k: any, i: number) => (
-              <li key={i} className="p-3 flex items-start justify-between">
-                <div className="pr-3">
-                  <div className="text-gray-900">{k.krav}</div>
-                  {Array.isArray(k.henvisning_chunk_ids) && k.henvisning_chunk_ids.length > 0 && (
-                    <div className="text-xs text-gray-500 mt-1">chunks: {k.henvisning_chunk_ids.join(", ")}</div>
-                  )}
-                </div>
-                <span className={`text-xs px-2 py-0.5 rounded ${k.oppfylt ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                  {k.oppfylt ? 'Oppfylt' : 'Ikke oppfylt'}
-                </span>
+      {krav.length > 0 && (
+        <section>
+          <h4 className="font-medium mb-2">Kravvurdering</h4>
+          <ul className="space-y-1">
+            {krav.map((k: any, idx: number) => (
+              <li key={idx} className="text-sm flex items-start gap-2">
+                <span>{k.oppfylt ? '✅' : '❌'}</span>
+                <span>{k.krav}</span>
               </li>
             ))}
           </ul>
-        </div>
+        </section>
       )}
 
-      {(data.metode_etterlevd || data.fase_dokkrav_oppfylt) && (
-        <div className="grid md:grid-cols-2 gap-4">
-          {data.metode_etterlevd && (
-            <div className="border border-gray-200 rounded p-3">
-              <div className="text-sm font-semibold text-gray-700 mb-1">Metode etterlevd</div>
-              <div className="text-sm">{data.metode_etterlevd.ja ? 'Ja' : 'Nei'}</div>
-              {data.metode_etterlevd.henvisning_chunk_ids?.length > 0 && (
-                <div className="text-xs text-gray-500 mt-1">chunks: {data.metode_etterlevd.henvisning_chunk_ids.join(", ")}</div>
-              )}
-            </div>
-          )}
-          {data.fase_dokkrav_oppfylt && (
-            <div className="border border-gray-200 rounded p-3">
-              <div className="text-sm font-semibold text-gray-700 mb-1">Fase-dokkrav oppfylt</div>
-              <div className="text-sm">{data.fase_dokkrav_oppfylt.ja ? 'Ja' : 'Nei'}</div>
-              {data.fase_dokkrav_oppfylt.mangler?.length > 0 && (
-                <ul className="text-xs text-gray-600 mt-1 list-disc list-inside">
-                  {data.fase_dokkrav_oppfylt.mangler.map((m: string, i: number) => <li key={i}>{m}</li>)}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {data.dokumentasjonsgrunnlag?.length > 0 && (
-        <div>
-          <h4 className="text-sm font-semibold text-gray-700 mb-2">Dokumentasjonsgrunnlag</h4>
-          <table className="w-full text-sm border border-gray-200 rounded overflow-hidden">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="text-left p-2 border-b">chunk_id</th>
-                <th className="text-left p-2 border-b">Dekker krav</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.dokumentasjonsgrunnlag.map((r: any, i: number) => (
-                <tr key={i} className="border-b">
-                  <td className="p-2">{r.chunk_id}</td>
-                  <td className="p-2">{r.dekker_krav}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {Array.isArray(data.mangler) && data.mangler.length > 0 && (
-        <div>
-          <h4 className="text-sm font-semibold text-gray-700 mb-1">Mangler</h4>
-          <ul className="list-disc list-inside text-gray-800">
-            {data.mangler.map((m: string, i: number) => <li key={i}>{m}</li>)}
+      {dok.length > 0 && (
+        <section>
+          <h4 className="font-medium mb-2">Dokumentasjonsgrunnlag</h4>
+          <ul className="text-sm list-disc pl-5">
+            {dok.slice(0, 6).map((d: any, idx: number) => (
+              <li key={idx}>
+                {d.dekker_krav || d.beskrivelse || `Chunk ${d.chunk_id}`}
+                {d.chunk_id != null ? ` (chunk ${d.chunk_id})` : null}
+              </li>
+            ))}
           </ul>
-        </div>
+        </section>
       )}
 
-      {Array.isArray(data.anbefalinger) && data.anbefalinger.length > 0 && (
-        <div>
-          <h4 className="text-sm font-semibold text-gray-700 mb-1">Anbefalinger</h4>
-          <ul className="list-disc list-inside text-gray-800">
-            {data.anbefalinger.map((m: string, i: number) => <li key={i}>{m}</li>)}
+      {mangler.length > 0 && (
+        <section>
+          <h4 className="font-medium mb-2">Mangler</h4>
+          <ul className="text-sm list-disc pl-5">
+            {mangler.map((m: string, idx: number) => <li key={idx}>{m}</li>)}
           </ul>
-        </div>
+        </section>
+      )}
+
+      {anbefalinger.length > 0 && (
+        <section>
+          <h4 className="font-medium mb-2">Anbefalinger</h4>
+          <ul className="text-sm list-disc pl-5">
+            {anbefalinger.map((a: string, idx: number) => <li key={idx}>{a}</li>)}
+          </ul>
+        </section>
       )}
     </div>
   );
@@ -1454,6 +1606,7 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({})
   const [showChunks, setShowChunks] = useState(false)
   const [selectedCriterion, setSelectedCriterion] = useState<CriterionAssessment | null>(null)
+  const [useStructuredView, setUseStructuredView] = useState(false)
   const api = useApi()
   
   // Debug logging commented out to prevent console spam
@@ -1525,6 +1678,107 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
     );
   }
   
+  // Parse assessment structure - with better fallback handling
+  const structuredData = useMemo(() => {
+    const parseAssessmentStructure = (assessment: string) => {
+      const sections = {
+        summary: '',
+        criteria: [] as Array<{
+          title: string
+          status: string
+          content: string[]
+          rationale: string
+          documentReferences: string[]
+        }>,
+        recommendations: [] as string[]
+      }
+      
+      // If we have criterion_assessments, use those directly
+      if (results.criterion_assessments && results.criterion_assessments.length > 0) {
+        // console.log('✅ Using criterion_assessments from backend:', results.criterion_assessments);
+        sections.criteria = results.criterion_assessments.map(ca => ({
+          title: `Kriterium ${ca.criterion_id}: ${ca.title}`,
+          status: ca.status,
+          content: [ca.assessment],
+          rationale: '',
+          documentReferences: []
+        }));
+        
+        // Extract summary from main assessment if available
+        if (assessment) {
+          // Look for explicit summary section
+          const summaryMatch = assessment.match(/\*\*Oppsummering:\*\*\s*([^*]+?)(?=\n\n|\*\*|$)/);
+          if (summaryMatch) {
+            sections.summary = summaryMatch[1].trim();
+          } else {
+            // Fallback to first paragraph
+            const firstParagraph = assessment.split('\n').find(line => line.trim() && !line.includes('###') && !line.includes('**'));
+            if (firstParagraph) {
+              sections.summary = firstParagraph.trim();
+            }
+          }
+        }
+        
+        return sections;
+      }
+      
+      // Fallback: Parse the assessment text
+      console.log('⚠️ Parsing assessment text manually');
+      const lines = assessment.split('\n');
+      let currentSection = 'summary';
+      let currentCriterion: typeof sections.criteria[0] | null = null;
+      
+      lines.forEach(line => {
+        if ((line.includes('###') && line.includes(':')) || (line.includes('Kriterium') && line.includes(':'))) {
+          if (currentCriterion) {
+            sections.criteria.push(currentCriterion);
+          }
+          currentCriterion = {
+            title: line.replace('###', '').trim(),
+            status: '',
+            content: [],
+            rationale: '',
+            documentReferences: []
+          };
+          currentSection = 'criterion';
+        } else if (line.includes('**Status:**') || line.includes('**Vurderingsstatus:**')) {
+          if (currentCriterion) {
+            currentCriterion.status = line.replace(/.*\*\*(Status|Vurderingsstatus):\*\*\s*/, '').trim();
+          }
+        } else if (line.includes('Begrunnelse:') || line.includes('Faglig vurdering:')) {
+          if (currentCriterion) {
+            currentCriterion.rationale = line.replace(/(Begrunnelse|Faglig vurdering):/, '').trim();
+          }
+        } else if (line.includes('Dokumentasjon:') || line.includes('Referanse:') || line.includes('Dokumentasjonsgrunnlag:')) {
+          if (currentCriterion) {
+            currentCriterion.documentReferences.push(line.trim());
+          }
+        } else if (line.includes('Anbefalinger') || line.includes('anbefalinger')) {
+          currentSection = 'recommendations';
+          if (currentCriterion) {
+            sections.criteria.push(currentCriterion);
+            currentCriterion = null;
+          }
+        } else if (line.trim()) {
+          if (currentSection === 'summary' && !sections.summary) {
+            sections.summary = line.trim();
+          } else if (currentSection === 'criterion' && currentCriterion) {
+            currentCriterion.content.push(line.trim());
+          } else if (currentSection === 'recommendations') {
+            sections.recommendations.push(line.trim().replace(/^-\s*/, ''));
+          }
+        }
+      });
+      
+      if (currentCriterion) {
+        sections.criteria.push(currentCriterion);
+      }
+      
+      return sections;
+    };
+    
+    return parseAssessmentStructure(results.assessment || results.fullAssessment || '');
+  }, [results]);
   
   // Get download URL with proper format
   const downloadUrl = results.report_file ? api.getDownloadUrl(results.report_file) : '';
@@ -1831,29 +2085,157 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
               </div>
             </div>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 tracking-tight mb-4">Vurdering av kriterier</h2>
+          
+          {/* Summary Section if available */}
+          {structuredData.summary && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-8">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-emerald-600" />
+                Sammendrag
+              </h2>
+              <p className="text-gray-700 leading-relaxed">{structuredData.summary}</p>
+            </div>
+          )}
+          
+          {/* Toggle for view mode */}
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Vurdering av kriterier</h2>
+            <button
+              onClick={() => setUseStructuredView(!useStructuredView)}
+              className="px-4 py-2 text-sm bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition-colors"
+            >
+              {useStructuredView ? 'Bytt til klassisk visning' : 'Bytt til strukturert visning'}
+            </button>
+          </div>
 
+          {/* Criteria Results - structured or classic view */}
           <div className="space-y-4 mb-8">
-            {results.criterion_assessments?.length ? (
-              results.criterion_assessments.map((ca, index) => {
-                const rawStatus = (ca.status || '').toLowerCase();
-                const statusKey =
-                  ca.status === '✅' || (rawStatus.includes('oppnådd') && !rawStatus.includes('ikke'))
-                    ? 'emerald'
-                    : ca.status === '⚠️' || rawStatus.includes('delvis')
-                    ? 'yellow'
-                    : ca.status === '❌' || rawStatus.includes('ikke')
-                    ? 'red'
-                    : 'gray';
-                const StatusIcon = statusKey === 'emerald' ? CheckCircle : statusKey === 'yellow' ? AlertCircle : statusKey === 'red' ? XCircle : HelpCircle;
-
+            {useStructuredView && results.criteria_results?.length && results.criterion_assessments?.length ? (
+              // New structured view
+              <AssessmentResultView data={{
+                success: true,
+                message: '',
+                assessment_id: '',
+                assessment: results.assessment || '',
+                assessment_summary: results.assessment || '',
+                report_file: results.report_file,
+                word_file: results.word_file,
+                criteria_results: results.criteria_results.map(cr => ({
+                  id: cr.id || cr.criterion_id || '',
+                  title: cr.title || cr.criterion_title || '',
+                  status: (cr.status === '✅' || cr.status?.includes('Oppnådd')) ? 'approved' :
+                          (cr.status === '⚠️' || cr.status?.includes('Delvis')) ? 'partial' :
+                          (cr.status === '❌' || cr.status?.includes('Ikke')) ? 'rejected' : 'unknown',
+                  points: cr.points || 0,
+                  summary: cr.summary || '',
+                  page_references: cr.page_references || []
+                })),
+                criterion_assessments: results.criterion_assessments,
+                points_summary: {
+                  achieved: (results.points_summary as any)?.achieved_points || 0,
+                  possible: (results.points_summary as any)?.total_points || 0,
+                  percentage: (results.points_summary as any)?.percentage || 0,
+                  text: (results.points_summary as any)?.summary || ''
+                },
+                metadata: {
+                  assessment_id: '',
+                  version: state.selectedVersion || '',
+                  topic: state.selectedTopic || '',
+                  phase: results.metadata?.phase || state.selectedPhase,
+                  processing_time: String(results.metadata?.processing_time || ''),
+                  processing_seconds: Number(results.metadata?.processing_seconds || results.processing_time || 0),
+                  timestamp: new Date().toISOString()
+                },
+                files_processed: results.files_processed || [],
+                criteria_evaluated: results.criteria_evaluated || [],
+                processing_time: results.processing_time || 0
+              } as AssessmentAPIResponse} />
+            ) : results.criteria_results?.length ? (
+              // Use criteria_results directly when available (lightweight format)
+              results.criteria_results.map((criterion, index) => {
+                  const statusColorKey = criterion.status === '✅' || criterion.status.toLowerCase().includes('oppnådd') && !criterion.status.toLowerCase().includes('ikke') ? 'emerald' : 
+                                    criterion.status === '⚠️' || criterion.status.toLowerCase().includes('delvis') ? 'yellow' : 
+                                  criterion.status === '❌' || criterion.status.toLowerCase().includes('ikke') ? 'red' : 'gray';
+                const StatusIcon = statusColorKey === 'emerald' ? CheckCircle : 
+                                 statusColorKey === 'yellow' ? AlertCircle : 
+                                 statusColorKey === 'red' ? XCircle : HelpCircle;
+                
                 return (
                   <div key={index} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                    <div
+                    <div 
                       className="p-6 cursor-pointer hover:bg-gray-50 transition-colors"
                       onClick={() => toggleSection(`criterion-${index}`)}
                       role="button"
-                      aria-expanded={!!expandedSections[`criterion-${index}`]}
+                      aria-expanded={expandedSections[`criterion-${index}`]}
+                      aria-controls={`criterion-content-${index}`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                            Kriterium {criterion.id}: {criterion.title}
+                          </h3>
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${statusStyles[statusColorKey]}`}>
+                              <StatusIcon className="w-4 h-4" />
+                              {criterion.status}
+                            </div>
+                            
+                            {criterion.points !== undefined && (
+                              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-700">
+                                <Award className="w-4 h-4" />
+                                {criterion.points} poeng
+                              </span>
+                            )}
+                            
+                            
+                            {criterion.page_references && criterion.page_references.length > 0 && (
+                              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium bg-emerald-100 text-emerald-700">
+                                <FileSearch className="w-4 h-4" />
+                                {criterion.page_references.join(', ')}
+                              </div>
+                            )}
+                            
+                          </div>
+                        </div>
+                        <div className="ml-4">
+                          {expandedSections[`criterion-${index}`] ? 
+                            <ChevronUp className="w-5 h-5 text-gray-500" /> : 
+                            <ChevronDown className="w-5 h-5 text-gray-500" />
+                          }
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {expandedSections[`criterion-${index}`] && (
+                      <div id={`criterion-content-${index}`} className="px-6 pb-6 border-t border-gray-100">
+                        <div className="pt-4 space-y-4">
+                          <p className="text-gray-700 leading-relaxed">{criterion.summary}</p>
+                          
+                          
+                          
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            ) : results.criterion_assessments?.length ? (
+              // Fallback to criterion_assessments (full format)
+              results.criterion_assessments.map((ca, index) => {
+                const statusColorKey = ca.status === '✅' || ca.status.toLowerCase().includes('oppnådd') && !ca.status.toLowerCase().includes('ikke') ? 'emerald' : 
+                                  ca.status === '⚠️' || ca.status.toLowerCase().includes('delvis') ? 'yellow' : 
+                                  ca.status === '❌' || ca.status.toLowerCase().includes('ikke') ? 'red' : 'gray';
+                const StatusIcon = statusColorKey === 'emerald' ? CheckCircle : 
+                                 statusColorKey === 'yellow' ? AlertCircle : 
+                                 statusColorKey === 'red' ? XCircle : HelpCircle;
+                
+                return (
+                  <div key={index} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div 
+                      className="p-6 cursor-pointer hover:bg-gray-50 transition-colors"
+                      onClick={() => toggleSection(`criterion-${index}`)}
+                      role="button"
+                      aria-expanded={expandedSections[`criterion-${index}`]}
                       aria-controls={`criterion-content-${index}`}
                     >
                       <div className="flex items-start justify-between">
@@ -1862,11 +2244,12 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                             Kriterium {ca.criterion_id}: {ca.title || ca.criterion_title || 'Ukjent'}
                           </h3>
                           <div className="flex items-center gap-3 flex-wrap">
-                            <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${statusStyles[statusKey]}`}>
+                            <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${statusStyles[statusColorKey]}`}>
                               <StatusIcon className="w-4 h-4" />
-                              {ca.status || '❓'}
+                              {ca.status}
                             </div>
-                            {typeof ca.points === 'number' && (
+                            
+                            {ca.points !== undefined && (
                               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-700">
                                 <Award className="w-4 h-4" />
                                 {ca.points} poeng
@@ -1875,19 +2258,85 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                           </div>
                         </div>
                         <div className="ml-4">
-                          {expandedSections[`criterion-${index}`] ? (
-                            <ChevronUp className="w-5 h-5 text-gray-500" />
-                          ) : (
+                          {expandedSections[`criterion-${index}`] ? 
+                            <ChevronUp className="w-5 h-5 text-gray-500" /> : 
                             <ChevronDown className="w-5 h-5 text-gray-500" />
-                          )}
+                          }
                         </div>
                       </div>
                     </div>
-
+                    
                     {expandedSections[`criterion-${index}`] && (
                       <div id={`criterion-content-${index}`} className="px-6 pb-6 border-t border-gray-100">
                         <div className="pt-4 space-y-4">
-                          <TechnicalAssessmentView assessment={ca.assessment} />
+                          <AssessmentView data={ca.assessment} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            ) : structuredData.criteria.length > 0 ? (
+              // Fallback to parsed criteria
+              structuredData.criteria.map((criterion, index) => {
+                const statusColorKey = criterion.status.toLowerCase().includes('oppfylt') || criterion.status.toLowerCase().includes('oppnådd') && !criterion.status.toLowerCase().includes('ikke') ? 'emerald' : 
+                                  criterion.status.toLowerCase().includes('delvis') ? 'yellow' : 'red';
+                const StatusIcon = statusColorKey === 'emerald' ? CheckCircle : 
+                                 statusColorKey === 'yellow' ? AlertCircle : XCircle;
+                
+                return (
+                  <div key={index} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div 
+                      className="p-6 cursor-pointer hover:bg-gray-50 transition-colors"
+                      onClick={() => toggleSection(`criterion-${index}`)}
+                      role="button"
+                      aria-expanded={expandedSections[`criterion-${index}`]}
+                      aria-controls={`criterion-content-${index}`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                            {criterion.title}
+                          </h3>
+                          <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${statusStyles[statusColorKey]}`}>
+                            <StatusIcon className="w-4 h-4" />
+                            {criterion.status}
+                          </div>
+                          {criterion.documentReferences.length > 0 && (
+                            <div className="mt-2 text-sm text-gray-600 font-light">
+                              <span className="font-medium">Dokumentreferanse:</span> {criterion.documentReferences[0]}
+                            </div>
+                          )}
+                        </div>
+                        <div className="ml-4">
+                          {expandedSections[`criterion-${index}`] ? 
+                            <ChevronUp className="w-5 h-5 text-gray-500" /> : 
+                            <ChevronDown className="w-5 h-5 text-gray-500" />
+                          }
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {expandedSections[`criterion-${index}`] && (
+                      <div id={`criterion-content-${index}`} className="px-6 pb-6 border-t border-gray-100">
+                        <div className="pt-4 space-y-3">
+                          {criterion.rationale && (
+                            <div>
+                              <h4 className="font-medium text-gray-900 mb-1">Begrunnelse:</h4>
+                              <p className="text-gray-700 font-light">{criterion.rationale}</p>
+                            </div>
+                          )}
+                          
+                          {criterion.content.length > 0 && (
+                            <div>
+                              <h4 className="font-medium text-gray-900 mb-1">Detaljer:</h4>
+                              <ul className="list-disc list-inside space-y-1">
+                                {criterion.content.map((item, i) => (
+                                  <li key={i} className="text-gray-700 font-light">{item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -1895,12 +2344,33 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                 );
               })
             ) : (
+              // No criteria found
               <div className="bg-gray-50 rounded-lg p-8 text-center">
                 <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-3" />
                 <p className="text-gray-600">Ingen kriterievurderinger funnet.</p>
               </div>
             )}
           </div>
+          
+          {/* Recommendations */}
+          {structuredData.recommendations.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-8">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2 tracking-tight">
+                <Target className="w-5 h-5 text-emerald-600" />
+                Anbefalinger for veien videre
+              </h2>
+              <ul className="space-y-3">
+                {structuredData.recommendations.map((rec, index) => (
+                  <li key={index} className="flex items-start gap-3">
+                    <div className="w-6 h-6 bg-emerald-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <span className="text-sm font-semibold text-emerald-700">{index + 1}</span>
+                    </div>
+                    <p className="text-gray-700 font-light">{rec}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           
           
           {/* Audit Trail Table */}

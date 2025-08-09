@@ -232,7 +232,7 @@ export interface AssessmentResponse {
     status: string;
     score_status?: string;
     points?: number;
-    assessment: string;
+    assessment: Record<string, any>; // Now accepts structured objects from backend
     summary?: string;
     used_chunks?: any[];
     chunks?: any[];
@@ -653,70 +653,42 @@ export const useApi = () => {
   };
 };
 
-// Helper function that returns the new AssessmentAPIResponse type
+// Helper function that proxies to breeamApi.createAssessment for backwards compatibility
 export async function createAssessment(formData: FormData): Promise<AssessmentAPIResponse> {
-  const url = `${API_BASE_URL}/api/vurder`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    body: formData,
-  });
+  // Simply proxy to the main implementation with default PDF format
+  const result = await breeamApi.createAssessment(formData, 'pdf');
   
-  if (!res.ok) {
-    let rawText = "";
-    try {
-      rawText = await res.text();
-      // Log raw response for easy debugging in console
-      console.error("❌ Error response text:", rawText);
-    } catch (e) {
-      console.error("❌ Could not read error response:", e);
-    }
-
-    // Try to parse JSON
-    let parsed: any = null;
-    try {
-      parsed = rawText ? JSON.parse(rawText) : null;
-    } catch {
-      // ignore
-    }
-
-    // Get best possible error message
-    let message = `Feil ved vurdering (${res.status})`;
-    let requestId: string | undefined;
-
-    if (parsed && typeof parsed === "object") {
-      // Support both top-level and nested error object
-      message =
-        parsed.message ||
-        parsed.detail ||
-        parsed.error?.message ||
-        parsed.error ||
-        message;
-      requestId = parsed.request_id || parsed.error?.request_id || parsed.metadata?.request_id;
-    } else if (rawText) {
-      message = rawText;
-    }
-
-    // Add requestId to console for easy search in server logs
-    if (requestId) {
-      console.error(`🆔 request_id: ${requestId}`);
-      message = `${message}${message.endsWith(".") ? "" : "."} (request_id: ${requestId})`;
-    }
-
-    throw new ApiError(message, res.status, undefined, requestId);
-  }
-
-  // OK - Try .json() with fallback to text → JSON
-  try {
-    return (await res.json()) as AssessmentAPIResponse;
-  } catch {
-    const txt = await res.text();
-    try {
-      return JSON.parse(txt) as AssessmentAPIResponse;
-    } catch {
-      throw new ApiError("Kunne ikke parse svar fra server.", res.status);
-    }
-  }
+  // Convert AssessmentResponse to AssessmentAPIResponse
+  // Ensure required fields are present
+  return {
+    success: result.success,
+    message: result.message,
+    assessment_id: result.assessment_id || '', // Provide default empty string if undefined
+    assessment: result.assessment,
+    assessment_summary: result.assessment_summary || result.assessment,
+    report_file: result.report_file,
+    word_file: result.word_file,
+    criteria_results: result.criteria_results || [],
+    criterion_assessments: result.criterion_assessments,
+    points_summary: result.points_summary || {
+      achieved: 0,
+      possible: 0,
+      percentage: 0,
+      text: ''
+    },
+    metadata: {
+      assessment_id: result.assessment_id || '',
+      version: '',
+      topic: '',
+      phase: result.metadata?.phase || '',
+      processing_time: String(result.metadata?.processing_time || result.processing_time || ''),
+      processing_seconds: Number(result.metadata?.processing_seconds || result.processing_seconds || result.processing_time || 0),
+      timestamp: result.timestamp || new Date().toISOString()
+    },
+    files_processed: result.files_processed,
+    criteria_evaluated: result.criteria_evaluated,
+    processing_time: result.processing_time
+  } as AssessmentAPIResponse;
 }
 
 // Utility functions
