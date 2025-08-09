@@ -1412,6 +1412,124 @@ function StatusBadge({ status }: { status?: string }) {
   return <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${m.className}`}>{m.emoji} {m.label}</span>;
 }
 
+function stripFences(s: string) {
+  if (typeof s !== 'string') return s;
+  return s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/,'');
+}
+
+function Badge({ok}: {ok?: boolean}) {
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs
+      ${ok ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+      {ok ? 'Ja' : 'Nei'}
+    </span>
+  );
+}
+
+function AssessmentView({data}: {data: any}) {
+  // Defensive: hvis server likevel sendte streng, prøv å parse eller vis kort tekst
+  if (typeof data === 'string') {
+    try { data = JSON.parse(stripFences(data)); } catch { /* ignore */ }
+  }
+  const a = data && typeof data === 'object' ? data : { begrunnelse_kort: String(data ?? '') };
+
+  return (
+    <div className="space-y-4">
+      {a.begrunnelse_kort && (
+        <div>
+          <div className="text-sm font-medium text-gray-500">begrunnelse_kort</div>
+          <div className="mt-1">{a.begrunnelse_kort}</div>
+        </div>
+      )}
+
+      {a.metode_etterlevd && (
+        <div>
+          <div className="text-sm font-medium text-gray-500">metode_etterlevd</div>
+          <div className="mt-1 flex items-center gap-2">
+            <Badge ok={!!a.metode_etterlevd.ja} />
+            {Array.isArray(a.metode_etterlevd.henvisning_chunk_ids) && a.metode_etterlevd.henvisning_chunk_ids.length > 0 && (
+              <span className="text-sm text-gray-600">
+                henvisning_chunk_ids: {a.metode_etterlevd.henvisning_chunk_ids.join(', ')}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {a.fase_dokkrav_oppfylt && (
+        <div>
+          <div className="text-sm font-medium text-gray-500">fase_dokkrav_oppfylt</div>
+          <div className="mt-1 flex items-center gap-2">
+            <Badge ok={!!a.fase_dokkrav_oppfylt.ja} />
+            {a.fase_dokkrav_oppfylt.mangler?.length > 0 && (
+              <ul className="list-disc ml-5 text-sm text-gray-700">
+                {a.fase_dokkrav_oppfylt.mangler.map((m: string, i: number) => <li key={i}>{m}</li>)}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+
+      {Array.isArray(a.kravvurdering) && a.kravvurdering.length > 0 && (
+        <div>
+          <div className="text-sm font-medium text-gray-500">kravvurdering</div>
+          <div className="mt-2 overflow-hidden rounded-xl border">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="text-left px-3 py-2">Krav</th>
+                  <th className="text-left px-3 py-2">Oppfylt</th>
+                  <th className="text-left px-3 py-2">Henvisning</th>
+                </tr>
+              </thead>
+              <tbody>
+                {a.kravvurdering.map((k: any, i: number) => (
+                  <tr key={i} className="border-t">
+                    <td className="px-3 py-2">{k.krav}</td>
+                    <td className="px-3 py-2"><Badge ok={!!k.oppfylt} /></td>
+                    <td className="px-3 py-2 text-gray-600">
+                      {Array.isArray(k.henvisning_chunk_ids) ? k.henvisning_chunk_ids.join(', ') : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {Array.isArray(a.dokumentasjonsgrunnlag) && a.dokumentasjonsgrunnlag.length > 0 && (
+        <div>
+          <div className="text-sm font-medium text-gray-500">dokumentasjonsgrunnlag</div>
+          <ul className="mt-1 list-disc ml-5 text-sm text-gray-700">
+            {a.dokumentasjonsgrunnlag.map((d: any, i: number) => (
+              <li key={i}>chunk {d.chunk_id}: {d.dekker_krav}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {Array.isArray(a.mangler) && a.mangler.length > 0 && (
+        <div>
+          <div className="text-sm font-medium text-gray-500">mangler</div>
+          <ul className="mt-1 list-disc ml-5 text-sm text-rose-700">
+            {a.mangler.map((m: string, i: number) => <li key={i}>{m}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {Array.isArray(a.anbefalinger) && a.anbefalinger.length > 0 && (
+        <div>
+          <div className="text-sm font-medium text-gray-500">anbefalinger</div>
+          <ul className="mt-1 list-disc ml-5 text-sm text-emerald-700">
+            {a.anbefalinger.map((m: string, i: number) => <li key={i}>{m}</li>)}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StructuredCriterionCard({ ca, data }: { ca: any; data: any }) {
   const krav = Array.isArray(data?.kravvurdering) ? data.kravvurdering : [];
   const dok = Array.isArray(data?.dokumentasjonsgrunnlag) ? data.dokumentasjonsgrunnlag : [];
@@ -1489,7 +1607,6 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
   const [showChunks, setShowChunks] = useState(false)
   const [selectedCriterion, setSelectedCriterion] = useState<CriterionAssessment | null>(null)
   const [useStructuredView, setUseStructuredView] = useState(false)
-  const [viewMode, setViewMode] = useState<'classic' | 'structured'>('structured')
   const api = useApi()
   
   // Debug logging commented out to prevent console spam
@@ -2105,26 +2222,6 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
             ) : results.criterion_assessments?.length ? (
               // Fallback to criterion_assessments (full format)
               results.criterion_assessments.map((ca, index) => {
-                // 1) Kan vi tolke det som strukturert objekt?
-                let structured: any | null = null;
-
-                if (ca && typeof (ca as any).assessment === 'object' && (ca as any).assessment !== null) {
-                  structured = (ca as any).assessment;
-                } else if (typeof (ca as any).assessment === 'string') {
-                  const raw = (ca as any).assessment.trim();
-                  // støtt kasus der modellen har pakket objektet i ```json ... ```
-                  const fenced = raw.startsWith('```');
-                  const jsonText = fenced ? raw.replace(/^```json?/i, '').replace(/```$/, '').trim() : raw;
-                  try {
-                    const parsed = JSON.parse(jsonText);
-                    if (parsed && typeof parsed === 'object') structured = parsed;
-                  } catch {
-                    structured = null;
-                  }
-                }
-
-                const canStructured = !!structured;
-                
                 const statusColorKey = ca.status === '✅' || ca.status.toLowerCase().includes('oppnådd') && !ca.status.toLowerCase().includes('ikke') ? 'emerald' : 
                                   ca.status === '⚠️' || ca.status.toLowerCase().includes('delvis') ? 'yellow' : 
                                   ca.status === '❌' || ca.status.toLowerCase().includes('ikke') ? 'red' : 'gray';
@@ -2158,19 +2255,6 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                                 {ca.points} poeng
                               </span>
                             )}
-                            
-                            {/* View mode toggle button */}
-                            {canStructured && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setViewMode(v => v === 'structured' ? 'classic' : 'structured');
-                                }}
-                                className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
-                              >
-                                {viewMode === 'structured' ? 'Klassisk' : 'Strukturert'}
-                              </button>
-                            )}
                           </div>
                         </div>
                         <div className="ml-4">
@@ -2185,11 +2269,7 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                     {expandedSections[`criterion-${index}`] && (
                       <div id={`criterion-content-${index}`} className="px-6 pb-6 border-t border-gray-100">
                         <div className="pt-4 space-y-4">
-                          {canStructured && viewMode === 'structured' ? (
-                            <StructuredCriterionCard ca={ca} data={structured} />
-                          ) : (
-                            <MarkdownRenderer content={ca.assessment} />
-                          )}
+                          <AssessmentView data={ca.assessment} />
                         </div>
                       </div>
                     )}
