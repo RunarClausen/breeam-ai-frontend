@@ -3680,22 +3680,24 @@ function EnhancedBREEAMAI() {
     throw lastError || new Error('All retry attempts failed')
   }
 
-  // Helper function to simulate progress during long operations
-  const simulateProgress = useCallback((startProgress: number, endProgress: number, duration: number) => {
-    const steps = 20
-    const stepSize = (endProgress - startProgress) / steps
-    const stepDuration = duration / steps
+  // Helper function to simulate smooth progress during long operations
+  const simulateProgress = useCallback((currentProgress: number, targetProgress: number, duration: number) => {
+    const steps = Math.floor(duration / 100) // Update every 100ms for smoothness
+    const stepSize = (targetProgress - currentProgress) / steps
     
     let currentStep = 0
     const interval = setInterval(() => {
       currentStep++
-      const newProgress = Math.min(startProgress + (stepSize * currentStep), endProgress)
+      const newProgress = Math.min(
+        Math.round(currentProgress + (stepSize * currentStep)), 
+        targetProgress
+      )
       dispatch({ type: 'SET_PROGRESS', payload: { progress: newProgress } })
       
-      if (currentStep >= steps) {
+      if (currentStep >= steps || newProgress >= targetProgress) {
         clearInterval(interval)
       }
-    }, stepDuration)
+    }, 100)
     
     return interval
   }, [dispatch])
@@ -3719,18 +3721,18 @@ function EnhancedBREEAMAI() {
 
     dispatch({ type: 'SET_ASSESSING', payload: true })
     dispatch({ type: 'SET_ERROR', payload: null })
-    dispatch({ type: 'SET_PROGRESS', payload: { progress: 0, message: 'Forbereder vurdering...' } })
     
     if (!isRetry) {
       dispatch({ type: 'RESET_RETRY' })
     }
 
-    // Declare progressInterval outside try block so it's accessible in finally
+    // Declare intervals and timeouts outside try block so they're accessible in finally
     let progressInterval: ReturnType<typeof setInterval> | null = null
+    const milestoneTimeouts: NodeJS.Timeout[] = []
 
     try {
-      // Step 1: Prepare form data (5%)
-      dispatch({ type: 'SET_PROGRESS', payload: { progress: 5, message: 'Klargjør dokumenter...' } })
+      // Milestone 1: Pakker og validerer input (10%)
+      dispatch({ type: 'SET_PROGRESS', payload: { progress: 10, message: 'Pakker og validerer input...' } })
       
       const formData = utils.createAssessmentFormData({
         version: state.selectedVersion,
@@ -3744,16 +3746,40 @@ function EnhancedBREEAMAI() {
         includeChunks: false
       })
 
-      // Step 2: Send to backend (10%)
-      dispatch({ type: 'SET_PROGRESS', payload: { progress: 10, message: 'Sender til analyse...' } })
+      // Milestone 2: Upload startet (20%)
+      dispatch({ type: 'SET_PROGRESS', payload: { progress: 20, message: 'Upload startet...' } })
       
       console.log('📤 Sending assessment request...')
       
-      // Step 3: Processing (20-90% based on actual progress)
-      dispatch({ type: 'SET_PROGRESS', payload: { progress: 20, message: 'Analyserer dokumenter...' } })
+      // Simulate smooth progress while waiting for response
+      // The progress will gradually move from 20% to 90% over 30 seconds
+      // This gives a realistic feel without jumps
+      let currentMilestone = 20
       
-      // Start progress simulation (20% to 90% over 30 seconds)
-      progressInterval = simulateProgress(20, 90, 30000)
+      // Create a smooth loader that progresses through milestones
+      const milestones = [
+        { progress: 40, message: 'Server prosesserer dokumenter...', time: 5000 },
+        { progress: 60, message: 'Relevans & kontekst...', time: 10000 },
+        { progress: 85, message: 'AI-vurdering...', time: 15000 }
+      ]
+      
+      // Schedule milestone updates
+      milestones.forEach((milestone) => {
+        const timeout = setTimeout(() => {
+          dispatch({ type: 'SET_PROGRESS', payload: { progress: milestone.progress, message: milestone.message } })
+          currentMilestone = milestone.progress
+        }, milestone.time)
+        milestoneTimeouts.push(timeout)
+      })
+      
+      // Smooth animation that gradually increases progress
+      let smoothProgress = 20
+      progressInterval = setInterval(() => {
+        if (smoothProgress < 90) {
+          smoothProgress = Math.min(smoothProgress + 0.5, 90)
+          dispatch({ type: 'SET_PROGRESS', payload: { progress: Math.round(smoothProgress) } })
+        }
+      }, 250)
       
       try {
         // DIAGNOSTIC: Isolate the API call to find the problem
@@ -3777,20 +3803,23 @@ function EnhancedBREEAMAI() {
           throw new Error('No result returned from API')
         }
         
-        // Stop simulation and jump to 95%
+        // Stop simulation and clear all timeouts
         if (progressInterval) {
           clearInterval(progressInterval)
           progressInterval = null
         }
         
-        // Step 4: Response received (95%)
-        dispatch({ type: 'SET_PROGRESS', payload: { progress: 95, message: 'Behandler resultater...' } })
+        // Clear milestone timeouts
+        milestoneTimeouts.forEach(timeout => clearTimeout(timeout))
+        
+        // Milestone 6: Rapportgenerering (95%)
+        dispatch({ type: 'SET_PROGRESS', payload: { progress: 95, message: 'Rapportgenerering...' } })
         
         console.log('✅ Assessment completed:', result)
         
-        // Step 5: Process results (100%)
+        // Milestone 7: Fullført (100%)
         if (result.success || result.assessment || result.criterion_assessments) {
-          dispatch({ type: 'SET_PROGRESS', payload: { progress: 100, message: 'Vurdering fullført!' } })
+          dispatch({ type: 'SET_PROGRESS', payload: { progress: 100, message: 'Fullført!' } })
           
           // Process criteria results for display
           let summary = {
@@ -3852,11 +3881,12 @@ function EnhancedBREEAMAI() {
         }
         
       } catch (error) {
-        // Stop progress simulation if still running
+        // Stop progress simulation and clear timeouts if still running
         if (progressInterval) {
           clearInterval(progressInterval)
           progressInterval = null
         }
+        milestoneTimeouts.forEach(timeout => clearTimeout(timeout))
         throw error
       }
       
@@ -3892,7 +3922,7 @@ function EnhancedBREEAMAI() {
       }
       
     } finally {
-      // ALWAYS clean up: stop spinner and clear interval
+      // ALWAYS clean up: stop spinner and clear intervals/timeouts
       dispatch({ type: 'SET_ASSESSING', payload: false })
       
       // Clear progress interval if still running
@@ -3900,6 +3930,9 @@ function EnhancedBREEAMAI() {
         clearInterval(progressInterval)
         progressInterval = null
       }
+      
+      // Clear all milestone timeouts
+      milestoneTimeouts.forEach(timeout => clearTimeout(timeout))
       
       // Ensure progress is at 100% if we were successful, or 0% if we failed
       // This prevents UI from getting stuck at 90%
