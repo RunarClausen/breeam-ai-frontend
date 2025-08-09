@@ -127,66 +127,87 @@ interface RejectionReason {
 
 interface CriterionAssessment {
   criterion_id: string
-  title: string
-  status: string
-  assessment: string
-  evidence_count?: number
-  timestamp: string
-  phase: string
-  version: string
-  success: boolean
+  criterion_title?: string
+  title?: string
+  status: 'Oppnådd' | 'Delvis oppnådd' | 'Ikke oppnådd' | 'Uavklart' | string
+  score_status?: string
   points?: number
-  used_chunks?: Array<{
-    source: string;
-    page?: number;
-    relevance: number;
-    content_preview?: string;
-    metadata?: {
-      guidance_matches?: {
-        look_for: number;
-        accept_formats: number;
-        reject_if: number;
-      };
-    };
-  }>;
+  assessment: string
+  summary?: string
+  page_references?: string[]
+  
+  // New fields from backend - all OPTIONAL
+  guidance_match_info?: {
+    look_for_matches?: number
+    accept_format_matches?: number
+    look_for_total?: number
+    format_matches?: number
+    reject_warnings?: number
+    items?: Array<{ type: 'look_for' | 'accept_format'; item: string }>
+  }
   phase_validation?: {
     is_valid: boolean
     missing_documents: string[]
-    warnings: string[]
-    matched_documents: string[]
+    warnings?: string[]
+    matched_documents?: any[]
   }
+  rejection_reasons?: string[] | RejectionReason
+  evidence_count?: number
+  used_chunks?: Array<{
+    source: string
+    page?: number
+    relevance: number
+    content_preview?: string
+    metadata?: {
+      guidance_matches?: {
+        look_for: number
+        accept_formats: number
+        reject_if: number
+      }
+    }
+  }>
   criterion_metadata?: {
-    has_sub_requirements: boolean;
-    assessment_guidance_available: boolean;
-    method_section_id?: string;
+    has_sub_requirements: boolean
+    assessment_guidance_available: boolean
+    method_section_id?: string
   }
-  guidance_match_info?: {
-    look_for_matches: number;
-    look_for_total: number;
-    format_matches: number;
-    reject_warnings: number;
-  };
-  rejection_reasons?: RejectionReason
+  
+  // Meta fields (some views need these)
+  timestamp?: string
+  phase?: string
+  version?: string
+  success?: boolean
 }
 
 interface AssessmentResult {
+  success?: boolean
+  message?: string
   assessment?: string
   fullAssessment?: string
   files_processed?: string[]
-  criteria_evaluated?: string[]
+  criteria_evaluated?: (string | number)[]
   word_file?: string | null
   wordFileUrl?: string | null
   report_file?: string | null
-  report_format?: 'pdf' | 'word'
+  report_format?: 'pdf' | 'word' | 'docx'
   displayed_chunks?: Chunk[]
   criterion_assessments?: CriterionAssessment[]
   criteria_results?: Array<{
-    id: string
+    criterion_id?: string
+    id?: string
+    criterion_title?: string
     title?: string
     status: string
-    points: number
-    summary: string
+    score_status?: string
+    points?: number
+    assessment?: string
+    summary?: string
     page_references?: string[]
+    guidance_match_info?: any
+    phase_validation?: any
+    rejection_reasons?: string[]
+    evidence_count?: number
+    used_chunks?: any[]
   }>
   phase_validation?: {
     valid_criteria: number
@@ -195,6 +216,13 @@ interface AssessmentResult {
   }
   audit_trail?: AuditTrailEntry[]
   rejection_reasons?: RejectionReason[]
+  points_summary?: {
+    summary?: string
+    achieved_points?: number
+    total_points?: number
+    percentage?: number
+  } | null
+  processing_time?: number
   metadata?: {
     processing_time?: number | string
     processing_seconds?: number
@@ -213,12 +241,6 @@ interface AssessmentResult {
     fulfilled: number
     partiallyFulfilled: number
     notFulfilled: number
-  }
-  points_summary?: {
-    summary?: string
-    achieved_points?: number
-    total_points?: number
-    percentage?: number
   }
 }
 
@@ -2013,27 +2035,43 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                                 <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
                                 <div className="flex-1">
                                   <h4 className="font-semibold text-red-900 mb-2">⚠️ Dokumentasjon ikke godkjent</h4>
-                                  <p className="text-sm text-red-800 mb-2">
-                                    <span className="font-medium">Dokument:</span> {criterion.rejection_reasons.document}
-                                  </p>
-                                  <div className="space-y-3">
-                                    <div>
-                                      <p className="font-medium text-red-900 text-sm mb-1">Grunner:</p>
-                                      <ul className="list-disc list-inside text-sm text-red-800 space-y-1">
-                                        {criterion.rejection_reasons.rejected_because.map((reason: any, i: number) => (
-                                          <li key={i}>{reason}</li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                    <div>
-                                      <p className="font-medium text-red-900 text-sm mb-1">Du trenger i stedet:</p>
-                                      <ul className="list-disc list-inside text-sm text-red-800 space-y-1">
-                                        {criterion.rejection_reasons.need_instead.map((need: any, i: number) => (
-                                          <li key={i}>{need}</li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                  </div>
+                                  {Array.isArray(criterion.rejection_reasons) ? (
+                                    <ul className="list-disc list-inside text-sm text-red-800 space-y-1">
+                                      {criterion.rejection_reasons.map((reason: string, i: number) => (
+                                        <li key={i}>{reason}</li>
+                                      ))}
+                                    </ul>
+                                  ) : typeof criterion.rejection_reasons === 'object' && criterion.rejection_reasons !== null ? (
+                                    <>
+                                      {(criterion.rejection_reasons as RejectionReason).document && (
+                                        <p className="text-sm text-red-800 mb-2">
+                                          <span className="font-medium">Dokument:</span> {(criterion.rejection_reasons as RejectionReason).document}
+                                        </p>
+                                      )}
+                                      <div className="space-y-3">
+                                        {(criterion.rejection_reasons as RejectionReason).rejected_because?.length > 0 && (
+                                          <div>
+                                            <p className="font-medium text-red-900 text-sm mb-1">Grunner:</p>
+                                            <ul className="list-disc list-inside text-sm text-red-800 space-y-1">
+                                              {(criterion.rejection_reasons as RejectionReason).rejected_because.map((reason: string, i: number) => (
+                                                <li key={i}>{reason}</li>
+                                              ))}
+                                            </ul>
+                                          </div>
+                                        )}
+                                        {(criterion.rejection_reasons as RejectionReason).need_instead?.length > 0 && (
+                                          <div>
+                                            <p className="font-medium text-red-900 text-sm mb-1">Du trenger i stedet:</p>
+                                            <ul className="list-disc list-inside text-sm text-red-800 space-y-1">
+                                              {(criterion.rejection_reasons as RejectionReason).need_instead.map((need: string, i: number) => (
+                                                <li key={i}>{need}</li>
+                                              ))}
+                                            </ul>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </>
+                                  ) : null}
                                 </div>
                               </div>
                             </div>
@@ -3821,22 +3859,46 @@ function EnhancedBREEAMAI() {
         if (result.success || result.assessment || result.criterion_assessments) {
           dispatch({ type: 'SET_PROGRESS', payload: { progress: 100, message: 'Fullført!' } })
           
+          // Normalize API response - handle both criterion_assessments and criteria_results
+          const rawAssessments = (result.criterion_assessments ?? result.criteria_results ?? []) as any[]
+          
+          const normalizedCriterionAssessments: CriterionAssessment[] = rawAssessments.map((c: any) => ({
+            criterion_id: String(c.criterion_id ?? c.id ?? ''),
+            criterion_title: c.criterion_title ?? c.title,
+            title: c.title,
+            status: (c.status ?? c.score_status ?? 'Uavklart') as CriterionAssessment['status'],
+            score_status: c.score_status,
+            points: typeof c.points === 'number' ? c.points : 0,
+            assessment: c.assessment ?? c.summary ?? '',
+            summary: c.summary ?? '',
+            page_references: c.page_references ?? [],
+            guidance_match_info: c.guidance_match_info,
+            phase_validation: c.phase_validation,
+            rejection_reasons: c.rejection_reasons ?? [],
+            evidence_count: c.evidence_count ?? (Array.isArray(c.used_chunks) ? c.used_chunks.length : 0),
+            used_chunks: c.used_chunks ?? c.chunks ?? [],
+            timestamp: c.timestamp ?? result.timestamp,
+            phase: c.phase ?? result.metadata?.phase,
+            version: c.version ?? result.metadata?.version,
+            success: c.success ?? true,
+          }))
+          
           // Process criteria results for display
           let summary = {
-            totalCriteria: state.selectedCriteria.length,
+            totalCriteria: normalizedCriterionAssessments.length || state.selectedCriteria.length,
             fulfilled: 0,
             partiallyFulfilled: 0,
             notFulfilled: 0,
             notAssessable: 0
           }
           
-          if (result.criterion_assessments && Array.isArray(result.criterion_assessments)) {
+          if (normalizedCriterionAssessments.length > 0) {
             summary = {
-              totalCriteria: result.criterion_assessments.length,
-              fulfilled: result.criterion_assessments.filter((c: CriterionAssessment) => c.status === '✅').length,
-              partiallyFulfilled: result.criterion_assessments.filter((c: CriterionAssessment) => c.status === '⚠️').length,
-              notFulfilled: result.criterion_assessments.filter((c: CriterionAssessment) => c.status === '❌').length,
-              notAssessable: result.criterion_assessments.filter((c: CriterionAssessment) => c.status === '❓').length
+              totalCriteria: normalizedCriterionAssessments.length,
+              fulfilled: normalizedCriterionAssessments.filter(c => c.status === '✅' || c.status === 'Oppnådd').length,
+              partiallyFulfilled: normalizedCriterionAssessments.filter(c => c.status === '⚠️' || c.status === 'Delvis oppnådd').length,
+              notFulfilled: normalizedCriterionAssessments.filter(c => c.status === '❌' || c.status === 'Ikke oppnådd').length,
+              notAssessable: normalizedCriterionAssessments.filter(c => c.status === '❓' || c.status === 'Uavklart').length
             }
             
             console.log('📊 Assessment summary:', summary)
@@ -3855,7 +3917,7 @@ function EnhancedBREEAMAI() {
             report_file: result.report_file,
             report_format: state.reportFormat,
             displayed_chunks: result.displayed_chunks || [],
-            criterion_assessments: result.criterion_assessments || [],
+            criterion_assessments: normalizedCriterionAssessments,
             phase_validation: result.phase_validation,
             metadata: {
               ...result.metadata,
