@@ -1068,7 +1068,19 @@ function normalizeToMarkdown(content: MarkdownRenderable): string {
   }
 }
 
-function renderMarkdownLines(text: string): React.ReactElement[] {
+function renderMarkdownLines(text: string | any): React.ReactElement[] {
+  // før vi splitter: håndter ikke-string trygt
+  if (typeof text !== 'string') {
+    // prøv å vise strukturert json pent
+    try {
+      return [<pre key="json" className="whitespace-pre-wrap text-sm">
+        {JSON.stringify(text, null, 2)}
+      </pre>];
+    } catch {
+      return [<pre key="unknown" className="whitespace-pre-wrap text-sm">[ukjent innhold]</pre>];
+    }
+  }
+  
   // Hvis vi ikke har overskrifter, parse enkelt linje for linje
   const hasHeadings = /(^|\n)#{2,3}\s+/.test(text);
   const out: React.ReactElement[] = [];
@@ -1387,6 +1399,83 @@ const PhaseSelector: React.FC<PhaseSelectorProps> = ({ selectedPhase, onPhaseCha
   )
 }
 
+// ===== STRUCTURED CRITERION CARD COMPONENT =====
+function StatusBadge({ status }: { status?: string }) {
+  const map: Record<string, { emoji: string; className: string; label: string }> = {
+    '✅': { emoji: '✅', className: 'bg-emerald-100 text-emerald-700', label: 'Oppnådd' },
+    '⚠️': { emoji: '⚠️', className: 'bg-amber-100 text-amber-700', label: 'Delvis' },
+    '❌': { emoji: '❌', className: 'bg-rose-100 text-rose-700', label: 'Ikke oppnådd' },
+    '❓': { emoji: '❓', className: 'bg-slate-100 text-slate-700', label: 'Ukjent' },
+  };
+  const key = status && Object.keys(map).find(k => status.includes(k));
+  const m = (key && map[key]) || map['❓'];
+  return <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${m.className}`}>{m.emoji} {m.label}</span>;
+}
+
+function StructuredCriterionCard({ ca, data }: { ca: any; data: any }) {
+  const krav = Array.isArray(data?.kravvurdering) ? data.kravvurdering : [];
+  const dok = Array.isArray(data?.dokumentasjonsgrunnlag) ? data.dokumentasjonsgrunnlag : [];
+  const mangler = Array.isArray(data?.mangler) ? data.mangler : [];
+  const anbefalinger = Array.isArray(data?.anbefalinger) ? data.anbefalinger : [];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <StatusBadge status={data?.status} />
+        {typeof data?.begrunnelse_kort === 'string' && (
+          <p className="text-sm text-gray-600">{data.begrunnelse_kort}</p>
+        )}
+      </div>
+
+      {krav.length > 0 && (
+        <section>
+          <h4 className="font-medium mb-2">Kravvurdering</h4>
+          <ul className="space-y-1">
+            {krav.map((k: any, idx: number) => (
+              <li key={idx} className="text-sm flex items-start gap-2">
+                <span>{k.oppfylt ? '✅' : '❌'}</span>
+                <span>{k.krav}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {dok.length > 0 && (
+        <section>
+          <h4 className="font-medium mb-2">Dokumentasjonsgrunnlag</h4>
+          <ul className="text-sm list-disc pl-5">
+            {dok.slice(0, 6).map((d: any, idx: number) => (
+              <li key={idx}>
+                {d.dekker_krav || d.beskrivelse || `Chunk ${d.chunk_id}`}
+                {d.chunk_id != null ? ` (chunk ${d.chunk_id})` : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {mangler.length > 0 && (
+        <section>
+          <h4 className="font-medium mb-2">Mangler</h4>
+          <ul className="text-sm list-disc pl-5">
+            {mangler.map((m: string, idx: number) => <li key={idx}>{m}</li>)}
+          </ul>
+        </section>
+      )}
+
+      {anbefalinger.length > 0 && (
+        <section>
+          <h4 className="font-medium mb-2">Anbefalinger</h4>
+          <ul className="text-sm list-disc pl-5">
+            {anbefalinger.map((a: string, idx: number) => <li key={idx}>{a}</li>)}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}
+
 // ===== ENHANCED ASSESSMENT RESULTS =====
 const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = false, progress = 0, state, dispatch }: {
   results: AssessmentResult | null
@@ -1400,6 +1489,7 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
   const [showChunks, setShowChunks] = useState(false)
   const [selectedCriterion, setSelectedCriterion] = useState<CriterionAssessment | null>(null)
   const [useStructuredView, setUseStructuredView] = useState(false)
+  const [viewMode, setViewMode] = useState<'classic' | 'structured'>('structured')
   const api = useApi()
   
   // Debug logging commented out to prevent console spam
@@ -2015,6 +2105,26 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
             ) : results.criterion_assessments?.length ? (
               // Fallback to criterion_assessments (full format)
               results.criterion_assessments.map((ca, index) => {
+                // 1) Kan vi tolke det som strukturert objekt?
+                let structured: any | null = null;
+
+                if (ca && typeof (ca as any).assessment === 'object' && (ca as any).assessment !== null) {
+                  structured = (ca as any).assessment;
+                } else if (typeof (ca as any).assessment === 'string') {
+                  const raw = (ca as any).assessment.trim();
+                  // støtt kasus der modellen har pakket objektet i ```json ... ```
+                  const fenced = raw.startsWith('```');
+                  const jsonText = fenced ? raw.replace(/^```json?/i, '').replace(/```$/, '').trim() : raw;
+                  try {
+                    const parsed = JSON.parse(jsonText);
+                    if (parsed && typeof parsed === 'object') structured = parsed;
+                  } catch {
+                    structured = null;
+                  }
+                }
+
+                const canStructured = !!structured;
+                
                 const statusColorKey = ca.status === '✅' || ca.status.toLowerCase().includes('oppnådd') && !ca.status.toLowerCase().includes('ikke') ? 'emerald' : 
                                   ca.status === '⚠️' || ca.status.toLowerCase().includes('delvis') ? 'yellow' : 
                                   ca.status === '❌' || ca.status.toLowerCase().includes('ikke') ? 'red' : 'gray';
@@ -2034,7 +2144,7 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                            Kriterium {ca.criterion_id}: {ca.title}
+                            Kriterium {ca.criterion_id}: {ca.title || ca.criterion_title || 'Ukjent'}
                           </h3>
                           <div className="flex items-center gap-3 flex-wrap">
                             <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${statusStyles[statusColorKey]}`}>
@@ -2049,6 +2159,18 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                               </span>
                             )}
                             
+                            {/* View mode toggle button */}
+                            {canStructured && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setViewMode(v => v === 'structured' ? 'classic' : 'structured');
+                                }}
+                                className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
+                              >
+                                {viewMode === 'structured' ? 'Klassisk' : 'Strukturert'}
+                              </button>
+                            )}
                           </div>
                         </div>
                         <div className="ml-4">
@@ -2063,7 +2185,11 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                     {expandedSections[`criterion-${index}`] && (
                       <div id={`criterion-content-${index}`} className="px-6 pb-6 border-t border-gray-100">
                         <div className="pt-4 space-y-4">
-                          <MarkdownRenderer content={ca.assessment} />
+                          {canStructured && viewMode === 'structured' ? (
+                            <StructuredCriterionCard ca={ca} data={structured} />
+                          ) : (
+                            <MarkdownRenderer content={ca.assessment} />
+                          )}
                         </div>
                       </div>
                     )}
