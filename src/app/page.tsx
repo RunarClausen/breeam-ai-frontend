@@ -153,19 +153,6 @@ interface CriterionAssessment {
   }
   rejection_reasons?: string[] | RejectionReason
   evidence_count?: number
-  used_chunks?: Array<{
-    source: string
-    page?: number
-    relevance: number
-    content_preview?: string
-    metadata?: {
-      guidance_matches?: {
-        look_for: number
-        accept_formats: number
-        reject_if: number
-      }
-    }
-  }>
   criterion_metadata?: {
     has_sub_requirements: boolean
     assessment_guidance_available: boolean
@@ -190,7 +177,6 @@ interface AssessmentResult {
   wordFileUrl?: string | null
   report_file?: string | null
   report_format?: 'pdf' | 'word' | 'docx'
-  displayed_chunks?: Chunk[]
   criterion_assessments?: CriterionAssessment[]
   criteria_results?: Array<{
     criterion_id?: string
@@ -203,11 +189,6 @@ interface AssessmentResult {
     assessment?: string
     summary?: string
     page_references?: string[]
-    guidance_match_info?: any
-    phase_validation?: any
-    rejection_reasons?: string[]
-    evidence_count?: number
-    used_chunks?: any[]
   }>
   phase_validation?: {
     valid_criteria: number
@@ -733,119 +714,9 @@ interface ChunksModalProps {
   allChunks?: Chunk[]
 }
 
-const ChunksModal: React.FC<ChunksModalProps> = ({ isOpen, onClose, criterion, allChunks }) => {
-  if (!isOpen || !criterion) return null
-
-  const chunks = criterion.used_chunks || []
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true">
-      <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl">
-        <div className="bg-emerald-50 border-b border-emerald-200 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <FileSearch className="w-6 h-6 text-emerald-600" />
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Dokumentasjonsgrunnlag
-                </h3>
-                <p className="text-sm text-gray-600">
-                  Kriterium {criterion.criterion_id}: {criterion.title}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors p-2 hover:bg-gray-100 rounded-lg"
-              aria-label="Lukk"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        <div className="overflow-y-auto max-h-[calc(90vh-8rem)] p-6">
-          {chunks.length === 0 ? (
-            <div className="text-center py-8">
-              <FileSearch className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-              <p className="text-gray-600">Ingen dokumentasjon tilgjengelig</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {chunks.map((chunk, index) => (
-                <div
-                  key={index}
-                  className="bg-gray-50 rounded-lg border border-gray-200 p-4 hover:border-emerald-300 transition-colors"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <FileText className="w-4 h-4 text-gray-600" />
-                        <span className="font-medium text-gray-900">{chunk.source}</span>
-                        {chunk.page && (
-                          <span className="text-sm text-gray-600">Side {chunk.page}</span>
-                        )}
-                      </div>
-                      
-                      <div className="flex items-center gap-3 mt-2">
-                        <div className="flex items-center gap-2">
-                          <Percent className="w-4 h-4 text-emerald-600" />
-                          <span className="text-sm font-medium text-emerald-700">
-                            {Math.round(chunk.relevance * 100)}% relevans
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {chunk.content_preview && (
-                    <div className="bg-white rounded p-3 border border-gray-200">
-                      <p className="text-sm text-gray-700 leading-relaxed">
-                        {chunk.content_preview}
-                      </p>
-                    </div>
-                  )}
-                  {chunk.metadata?.guidance_matches && (
-                    <div className="flex items-center gap-3 mt-2 text-xs">
-                      {chunk.metadata.guidance_matches.look_for > 0 && (
-                        <span className="text-emerald-600">
-                          ✓ {chunk.metadata.guidance_matches.look_for} søketreff
-                        </span>
-                      )}
-                      {chunk.metadata.guidance_matches.accept_formats > 0 && (
-                        <span className="text-emerald-600">
-                          ✓ {chunk.metadata.guidance_matches.accept_formats} formattreff
-                        </span>
-                      )}
-                      {chunk.metadata.guidance_matches.reject_if > 0 && (
-                        <span className="text-amber-600">
-                          ⚠️ {chunk.metadata.guidance_matches.reject_if} avvisninger
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="bg-gray-50 border-t border-gray-200 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-600">
-              Viser {chunks.length} dokumentutdrag
-            </p>
-            <button
-              onClick={onClose}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
-            >
-              Lukk
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
+const ChunksModal: React.FC<ChunksModalProps> = () => {
+  // Chunks functionality has been removed
+  return null
 }
 
 // ===== PROFESSIONAL LOGO COMPONENT =====
@@ -1526,7 +1397,7 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
           status: ca.status,
           content: [ca.assessment],
           rationale: '',
-          documentReferences: ca.used_chunks ? ca.used_chunks.map(c => `${c.source}${c.page ? ` (s.${c.page})` : ''}`) : []
+          documentReferences: []
         }));
         
         // Extract summary from main assessment if available
@@ -1606,8 +1477,8 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
   }, [results]);
   
   // Get download URL with proper format
-  const downloadUrl = api.getDownloadUrl(results.report_file || results.word_file || '');
-  const isPDF = results.report_format === 'pdf';
+  const downloadUrl = results.report_file ? api.getDownloadUrl(results.report_file) : '';
+  const isPDF = true; // Always PDF now
   
   // Calculate statistics
   const statistics = useMemo(() => {
@@ -1649,7 +1520,7 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
         isOpen={showChunks}
         onClose={() => setShowChunks(false)}
         criterion={selectedCriterion}
-        allChunks={results.displayed_chunks}
+        allChunks={[]}
       />
       
       {/* Keep header and footer on results page */}
@@ -1741,13 +1612,14 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                   <a 
                     href={downloadUrl}
                     download
-                    className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors shadow-lg"
+                    className={`flex items-center gap-2 px-6 py-3 ${downloadUrl ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-400 cursor-not-allowed'} text-white rounded-xl font-semibold transition-colors shadow-lg`}
+                    onClick={downloadUrl ? undefined : (e) => e.preventDefault()}
                   >
                     <Download className="w-5 h-5" />
                     <span>
                       Last ned AI-vurdering
                       <span className="block text-xs font-normal opacity-90">
-                        ({isPDF ? 'PDF' : 'Word'}-format)
+                        (PDF-format)
                       </span>
                     </span>
                   </a>
@@ -1853,12 +1725,12 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                   <div>
                     <p className="font-medium text-emerald-900">Poengoppnåelse:</p>
                     <p className="text-2xl font-bold text-emerald-700 mt-1">
-                      {results.points_summary.summary || `${results.points_summary.achieved_points} av ${results.points_summary.total_points} poeng`}
+                      {results.points_summary.summary || `${results.points_summary.achieved_points ?? 0} av ${results.points_summary.total_points ?? 0} poeng`}
                     </p>
                   </div>
                   <div className="text-right">
                     <p className="text-3xl font-bold text-emerald-700">
-                      {results.points_summary.percentage || 0}%
+                      {results.points_summary.percentage ?? 0}%
                     </p>
                     <p className="text-sm text-emerald-600">oppnådd</p>
                   </div>
@@ -1962,21 +1834,6 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                               </span>
                             )}
                             
-                            {criterion.guidance_match_info && (
-                              <div className="mt-2 flex items-center gap-4 text-xs">
-                                <span className={`${criterion.guidance_match_info.look_for_matches > 0 ? 'text-emerald-600' : 'text-gray-500'}`}>
-                                  ✓ {criterion.guidance_match_info.look_for_matches}/{criterion.guidance_match_info.look_for_total} søkekriterier
-                                </span>
-                                <span className={`${criterion.guidance_match_info.format_matches > 0 ? 'text-emerald-600' : 'text-gray-500'}`}>
-                                  ✓ {criterion.guidance_match_info.format_matches} godkjente formater
-                                </span>
-                                {criterion.guidance_match_info.reject_warnings > 0 && (
-                                  <span className="text-amber-600">
-                                    ⚠️ {criterion.guidance_match_info.reject_warnings} advarsler
-                                  </span>
-                                )}
-                              </div>
-                            )}
                             
                             {criterion.page_references && criterion.page_references.length > 0 && (
                               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium bg-emerald-100 text-emerald-700">
@@ -1985,12 +1842,6 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                               </div>
                             )}
                             
-                            {criterion.phase_validation && !criterion.phase_validation.is_valid && (
-                              <span className="inline-flex items-center gap-1 text-sm text-amber-600">
-                                <AlertCircle className="w-4 h-4" />
-                                Fase-validering feilet
-                              </span>
-                            )}
                           </div>
                         </div>
                         <div className="ml-4">
@@ -2007,82 +1858,8 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                         <div className="pt-4 space-y-4">
                           <p className="text-gray-700 leading-relaxed">{criterion.summary}</p>
                           
-                          {criterion.phase_validation && !criterion.phase_validation.is_valid && (
-                            <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                              <h4 className="font-medium text-amber-900 mb-2">Manglende dokumentasjon for fase:</h4>
-                              <ul className="list-disc list-inside text-sm text-amber-800">
-                                {criterion.phase_validation.missing_documents.map((doc: any, i: number) => (
-                                  <li key={i}>{doc}</li>
-                                ))}
-                              </ul>
-                              {criterion.phase_validation.warnings && criterion.phase_validation.warnings.length > 0 && (
-                                <div className="mt-3">
-                                  <p className="font-medium text-amber-900">Advarsler:</p>
-                                  <ul className="list-disc list-inside text-sm text-amber-800">
-                                    {criterion.phase_validation.warnings.map((warning: any, i: number) => (
-                                      <li key={i}>{warning}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                            </div>
-                          )}
                           
-                          {/* Rejection reasons display */}
-                          {criterion.rejection_reasons && (
-                            <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-                              <div className="flex items-start gap-3">
-                                <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
-                                <div className="flex-1">
-                                  <h4 className="font-semibold text-red-900 mb-2">⚠️ Dokumentasjon ikke godkjent</h4>
-                                  {Array.isArray(criterion.rejection_reasons) ? (
-                                    <ul className="list-disc list-inside text-sm text-red-800 space-y-1">
-                                      {criterion.rejection_reasons.map((reason: string, i: number) => (
-                                        <li key={i}>{reason}</li>
-                                      ))}
-                                    </ul>
-                                  ) : typeof criterion.rejection_reasons === 'object' && criterion.rejection_reasons !== null ? (
-                                    <>
-                                      {(criterion.rejection_reasons as RejectionReason).document && (
-                                        <p className="text-sm text-red-800 mb-2">
-                                          <span className="font-medium">Dokument:</span> {(criterion.rejection_reasons as RejectionReason).document}
-                                        </p>
-                                      )}
-                                      <div className="space-y-3">
-                                        {(criterion.rejection_reasons as RejectionReason).rejected_because?.length > 0 && (
-                                          <div>
-                                            <p className="font-medium text-red-900 text-sm mb-1">Grunner:</p>
-                                            <ul className="list-disc list-inside text-sm text-red-800 space-y-1">
-                                              {(criterion.rejection_reasons as RejectionReason).rejected_because.map((reason: string, i: number) => (
-                                                <li key={i}>{reason}</li>
-                                              ))}
-                                            </ul>
-                                          </div>
-                                        )}
-                                        {(criterion.rejection_reasons as RejectionReason).need_instead?.length > 0 && (
-                                          <div>
-                                            <p className="font-medium text-red-900 text-sm mb-1">Du trenger i stedet:</p>
-                                            <ul className="list-disc list-inside text-sm text-red-800 space-y-1">
-                                              {(criterion.rejection_reasons as RejectionReason).need_instead.map((need: string, i: number) => (
-                                                <li key={i}>{need}</li>
-                                              ))}
-                                            </ul>
-                                          </div>
-                                        )}
-                                      </div>
-                                    </>
-                                  ) : null}
-                                </div>
-                              </div>
-                            </div>
-                          )}
                           
-                          {/* Evidence count and metadata */}
-                          {criterion.evidence_count !== undefined && (
-                            <div className="text-sm text-gray-600 pt-2 border-t border-gray-100">
-                              <span className="font-medium">Dokumenter analysert:</span> {criterion.evidence_count}
-                            </div>
-                          )}
                         </div>
                       </div>
                     )}
@@ -2126,18 +1903,6 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                               </span>
                             )}
                             
-                            {ca.used_chunks && ca.used_chunks.length > 0 && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openChunksModal(ca);
-                                }}
-                                className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors"
-                              >
-                                <FileSearch className="w-4 h-4" />
-                                {ca.used_chunks.length} kilder
-                              </button>
-                            )}
                           </div>
                         </div>
                         <div className="ml-4">
@@ -2255,51 +2020,6 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
             </div>
           )}
           
-          {/* Displayed chunks overview */}
-          {results.displayed_chunks && results.displayed_chunks.length > 0 && (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-8">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2 tracking-tight">
-                  <FileSearch className="w-5 h-5 text-emerald-600" />
-                  Samlet dokumentasjonsgrunnlag
-                </h2>
-                <span className="text-sm text-gray-600">
-                  {results.displayed_chunks.length} relevante utdrag
-                </span>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {results.displayed_chunks.slice(0, 6).map((chunk, index) => (
-                  <div key={chunk.id || index} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex items-center gap-2 text-sm">
-                        <FileText className="w-4 h-4 text-gray-600" />
-                        <span className="font-medium text-gray-900">{chunk.source}</span>
-                        {chunk.page && <span className="text-gray-600">s.{chunk.page}</span>}
-                      </div>
-                      <span className="text-xs text-emerald-600 font-medium">
-                        {chunk.relevance_percentage}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-700 line-clamp-2">
-                      {chunk.content}
-                    </p>
-                    {chunk.warnings && chunk.warnings.length > 0 && (
-                      <div className="mt-2 text-xs text-amber-600">
-                        ⚠️ {chunk.warnings.join(', ')}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-              
-              {results.displayed_chunks.length > 6 && (
-                <p className="text-center text-sm text-gray-600 mt-4">
-                  + {results.displayed_chunks.length - 6} flere utdrag
-                </p>
-              )}
-            </div>
-          )}
           
           {/* Audit Trail Table */}
           {results.audit_trail && results.audit_trail.length > 0 && (
@@ -2335,28 +2055,6 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
             </div>
           )}
 
-          {/* Full Assessment Toggle */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-8">
-            <div 
-              className="flex items-center justify-between cursor-pointer"
-              onClick={() => toggleSection('fullAssessment')}
-              role="button"
-              aria-expanded={expandedSections.fullAssessment}
-              aria-controls="full-assessment-content"
-            >
-              <h2 className="text-lg font-semibold text-gray-900">Detaljert AI-vurdering</h2>
-              {expandedSections.fullAssessment ? 
-                <ChevronUp className="w-5 h-5 text-gray-500" /> : 
-                <ChevronDown className="w-5 h-5 text-gray-500" />
-              }
-            </div>
-            
-            {expandedSections.fullAssessment && (
-              <div id="full-assessment-content" className="mt-4 prose prose-emerald max-w-none">
-                <MarkdownRenderer content={results.assessment || results.fullAssessment || ''} />
-              </div>
-            )}
-          </div>
           
           {/* Metadata */}
           <div className="bg-gray-50 rounded-2xl p-6">
@@ -3872,11 +3570,6 @@ function EnhancedBREEAMAI() {
             assessment: c.assessment ?? c.summary ?? '',
             summary: c.summary ?? '',
             page_references: c.page_references ?? [],
-            guidance_match_info: c.guidance_match_info,
-            phase_validation: c.phase_validation,
-            rejection_reasons: c.rejection_reasons ?? [],
-            evidence_count: c.evidence_count ?? (Array.isArray(c.used_chunks) ? c.used_chunks.length : 0),
-            used_chunks: c.used_chunks ?? c.chunks ?? [],
             timestamp: c.timestamp ?? result.timestamp,
             phase: c.phase ?? result.metadata?.phase,
             version: c.version ?? result.metadata?.version,
@@ -3916,7 +3609,6 @@ function EnhancedBREEAMAI() {
             wordFileUrl: result.word_file,
             report_file: result.report_file,
             report_format: state.reportFormat,
-            displayed_chunks: result.displayed_chunks || [],
             criterion_assessments: normalizedCriterionAssessments,
             phase_validation: result.phase_validation,
             metadata: {
