@@ -975,137 +975,231 @@ const ToastNotification: React.FC<ToastNotificationProps> = ({ message, type = "
   );
 };
 
-// ===== MARKDOWN RENDERER =====
-interface MarkdownRendererProps {
-  content: string
+// --- DROP-IN REPLACEMENT: MarkdownRenderer ---
+// Tåler både string og objekt fra backend (f.eks. assessment som strukturert JSON)
+
+type MarkdownRenderable = string | Record<string, any> | null | undefined;
+
+function isPlainObject(v: unknown): v is Record<string, any> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
 }
 
-const MarkdownRenderer = React.memo<MarkdownRendererProps>(({ content }) => {
-  const parsedContent = useMemo(() => {
-    const parseMarkdown = (text: string): React.ReactElement[] => {
-      const sections = text.split(/###\s+/).filter(Boolean)
-      
-      return sections.map((section, sectionIndex) => {
-        const lines = section.split('\n')
-        const title = lines[0]
-        const content = lines.slice(1).join('\n')
-        
-        return (
-          <div key={sectionIndex} className="mb-6">
-            {title && (
-              <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                <div className="w-1 h-6 bg-emerald-600 rounded" aria-hidden="true"></div>
-                {title}
-              </h3>
-            )}
-            {parseContent(content, sectionIndex)}
-          </div>
-        )
-      })
+function objectToMarkdown(obj: Record<string, any>, depth = 0): string {
+  const h = (lvl: number, text: string) => `${"#".repeat(Math.min(6, lvl))} ${text}`;
+  const pad = "  ".repeat(depth);
+
+  const lines: string[] = [];
+
+  // Heuristikk: kjente felt fra kriterievurdering
+  if (typeof obj.status === "string") {
+    lines.push(`${pad}${h(depth + 3, `Status: ${obj.status}`)}`);
+  }
+  if (typeof obj.title === "string" || typeof obj.criterion_title === "string") {
+    lines.push(
+      `${pad}${h(depth + 2, obj.title || obj.criterion_title)}`
+    );
+  }
+
+  // Kort begrunnelse først om den finnes
+  if (typeof obj.begrunnelse_kort === "string" && obj.begrunnelse_kort.trim()) {
+    lines.push(`${pad}${obj.begrunnelse_kort.trim()}`);
+  }
+
+  // Generisk dumping av nøkler (skipper store/tekniske blokker)
+  const skipKeys = new Set([
+    "used_chunks",
+    "chunks",
+    "guidance_match_info",
+    "phase_validation",
+    "evidence_count",
+    "points",
+    "score_status",
+    "criterion_id",
+    "title",
+    "criterion_title",
+    "status",
+    "begrunnelse_kort",
+  ]);
+
+  for (const [key, val] of Object.entries(obj)) {
+    if (skipKeys.has(key)) continue;
+    if (val == null) continue;
+
+    if (typeof val === "string") {
+      if (!val.trim()) continue;
+      lines.push(`${pad}${h(depth + 3, key.replace(/_/g, " "))}`);
+      lines.push(`${pad}${val.trim()}`);
+    } else if (Array.isArray(val)) {
+      if (val.length === 0) continue;
+      lines.push(`${pad}${h(depth + 3, key.replace(/_/g, " "))}`);
+      for (const item of val) {
+        if (isPlainObject(item)) {
+          // Innrykket underpunkt
+          lines.push(objectToMarkdown(item, depth + 1));
+        } else {
+          lines.push(`${pad}- ${String(item)}`);
+        }
+      }
+    } else if (isPlainObject(val)) {
+      lines.push(`${pad}${h(depth + 3, key.replace(/_/g, " "))}`);
+      lines.push(objectToMarkdown(val, depth + 1));
+    } else {
+      lines.push(`${pad}${h(depth + 3, key.replace(/_/g, " "))}`);
+      lines.push(`${pad}${String(val)}`);
     }
-    
-    const parseContent = (text: string, sectionIndex: number): React.ReactElement => {
-      const elements: React.ReactElement[] = []
-      const lines = text.split('\n')
-      
-      let currentList: string[] = []
-      let inList = false
-      
-      lines.forEach((line, index) => {
-        if (line.startsWith('##')) {
-          elements.push(
-            <h4 key={`h4-${sectionIndex}-${index}`} className="text-md font-semibold text-gray-800 mt-4 mb-2">
-              {line.replace(/^##\s+/, '')}
-            </h4>
-          )
-        }
-        else if (line.includes('**Status:**') || line.includes('**Vurderingsstatus:**')) {
-          const status = line.replace(/.*\*\*(Status|Vurderingsstatus):\*\*\s*/, '').trim()
-          let statusColor: keyof typeof statusStyles = 'gray'
-          let StatusIcon = AlertCircle
-          
-          if (status.toLowerCase().includes('oppnådd') && !status.toLowerCase().includes('ikke')) {
-            statusColor = 'emerald'
-            StatusIcon = CheckCircle
-          } else if (status.toLowerCase().includes('delvis')) {
-            statusColor = 'yellow'
-            StatusIcon = AlertCircle
-          } else if (status.toLowerCase().includes('ikke')) {
-            statusColor = 'red'
-            StatusIcon = XCircle
-          }
-          
-          elements.push(
-            <div key={`status-${sectionIndex}-${index}`} className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${statusStyles[statusColor]} mb-3`}>
-              <StatusIcon className="w-4 h-4" />
-              {status}
-            </div>
-          )
-        }
-        else if (line.trim().startsWith('-') || line.trim().startsWith('•')) {
-          if (!inList) {
-            inList = true
-            currentList = []
-          }
-          currentList.push(line.trim().substring(1).trim())
-        }
-        else if (line.trim()) {
-          if (inList && currentList.length > 0) {
-            elements.push(
-              <ul key={`list-${sectionIndex}-${index}`} className="list-disc list-inside space-y-1 mb-4 ml-4">
-                {currentList.map((item, i) => (
-                  <li key={i} className="text-gray-700 font-light">
-                    {typeof item === 'string' ? parseBold(item, `${sectionIndex}-${index}-${i}`) : item}
-                  </li>
-                ))}
-              </ul>
-            )
-            currentList = []
-            inList = false
-          }
-          
-          elements.push(
-            <p key={`p-${sectionIndex}-${index}`} className="text-gray-700 font-light mb-3 leading-relaxed">
-              {parseBold(line, `${sectionIndex}-${index}`)}
-            </p>
-          )
-        }
-      })
-      
-      if (inList && currentList.length > 0) {
-        elements.push(
-          <ul key={`list-final-${sectionIndex}`} className="list-disc list-inside space-y-1 mb-4 ml-4">
-            {currentList.map((item, i) => (
-              <li key={i} className="text-gray-700 font-light">
-                {typeof item === 'string' ? parseBold(item, `${sectionIndex}-final-${i}`) : item}
-              </li>
+  }
+
+  return lines.join("\n");
+}
+
+function normalizeToMarkdown(content: MarkdownRenderable): string {
+  if (content == null) return "";
+
+  if (typeof content === "string") {
+    return content;
+  }
+
+  // Objekt: gjør et pent, lesbart markdown-sammendrag
+  try {
+    return objectToMarkdown(content);
+  } catch {
+    // Absolutt fallback
+    return "```json\n" + JSON.stringify(content, null, 2) + "\n```";
+  }
+}
+
+function renderMarkdownLines(text: string): React.ReactElement[] {
+  // Hvis vi ikke har overskrifter, parse enkelt linje for linje
+  const hasHeadings = /(^|\n)#{2,3}\s+/.test(text);
+  const out: React.ReactElement[] = [];
+
+  if (!hasHeadings) {
+    // Enkel liste/avsnitt-parsing med støtte for - bullets
+    const lines = text.split("\n");
+    let listBuffer: string[] = [];
+
+    const flushList = () => {
+      if (listBuffer.length) {
+        out.push(
+          <ul className="list-disc pl-6 my-2" key={`ul-${out.length}`}>
+            {listBuffer.map((item, i) => (
+              <li key={i}>{item.replace(/^-+\s*/, "")}</li>
             ))}
           </ul>
-        )
+        );
+        listBuffer = [];
       }
-      
-      return <>{elements}</>
-    }
-    
-    const parseBold = (text: string, keyPrefix: string): (string | React.ReactElement)[] => {
-      const parts = text.split(/\*\*(.*?)\*\*/g)
-      return parts.map((part, i) => {
-        if (i % 2 === 1) {
-          return <strong key={`${keyPrefix}-${i}`} className="font-semibold text-gray-900">{part}</strong>
-        } else if (part) {
-          return <span key={`${keyPrefix}-${i}`}>{part}</span>
-        }
-        return null
-      }).filter(Boolean) as (string | React.ReactElement)[]
-    }
-    
-    return parseMarkdown(content);
-  }, [content]);
-  
-  return <div>{parsedContent}</div>
-});
+    };
 
-MarkdownRenderer.displayName = 'MarkdownRenderer';
+    lines.forEach((line, idx) => {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        flushList();
+        return;
+      }
+      if (/^-\s+/.test(trimmed)) {
+        listBuffer.push(trimmed);
+      } else {
+        flushList();
+        out.push(
+          <p className="my-2 leading-relaxed" key={`p-${idx}`}>
+            {trimmed}
+          </p>
+        );
+      }
+    });
+    flushList();
+    return out;
+  }
+
+  // Har headings: del på ### (subseksjoner), bevar rekkefølge
+  const sections = text.split(/(?:^|\n)###\s+/).filter(Boolean);
+
+  sections.forEach((section, sectionIndex) => {
+    const lines = section.split("\n");
+    const first = lines[0] || "";
+    let title = first.trim();
+    let bodyLines = lines.slice(1);
+
+    // Hvis første linje egentlig var en "## " heading som havnet her
+    if (title.startsWith("## ")) {
+      title = title.replace(/^##\s+/, "").trim();
+    }
+
+    out.push(
+      <h3 className="text-lg font-semibold mt-6" key={`h3-${sectionIndex}`}>
+        {title}
+      </h3>
+    );
+
+    // Enkel liste- og avsnitts-parsing i seksjonen
+    let listBuffer: string[] = [];
+    const flushList = () => {
+      if (listBuffer.length) {
+        out.push(
+          <ul className="list-disc pl-6 my-2" key={`ul-sec-${sectionIndex}-${out.length}`}>
+            {listBuffer.map((item, i) => (
+              <li key={i}>{item.replace(/^-+\s*/, "")}</li>
+            ))}
+          </ul>
+        );
+        listBuffer = [];
+      }
+    };
+
+    bodyLines.forEach((line, idx) => {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        flushList();
+        return;
+      }
+      if (/^-\s+/.test(trimmed)) {
+        listBuffer.push(trimmed);
+      } else if (/^##\s+/.test(trimmed)) {
+        // Ny hovedseksjon inni: rendres som H2
+        flushList();
+        out.push(
+          <h2 className="text-xl font-bold mt-8" key={`h2-${sectionIndex}-${idx}`}>
+            {trimmed.replace(/^##\s+/, "")}
+          </h2>
+        );
+      } else {
+        flushList();
+        out.push(
+          <p className="my-2 leading-relaxed" key={`p-sec-${sectionIndex}-${idx}`}>
+            {trimmed}
+          </p>
+        );
+      }
+    });
+
+    flushList();
+  });
+
+  return out;
+}
+
+function MarkdownRenderer({ content }: { content: MarkdownRenderable }) {
+  const markdown = React.useMemo(() => normalizeToMarkdown(content), [content]);
+
+  // Ekstra guard – aldri crash på non-string
+  const safeText = typeof markdown === "string" ? markdown : String(markdown ?? "");
+
+  const parsed = React.useMemo(() => {
+    try {
+      return renderMarkdownLines(safeText);
+    } catch (e) {
+      // Absolutt fallback – vis som JSON pre om parser skulle feile
+      return [
+        <pre className="text-sm bg-neutral-50 p-3 rounded border" key="pre">
+          {typeof content === "string" ? content : JSON.stringify(content, null, 2)}
+        </pre>,
+      ];
+    }
+  }, [safeText, content]);
+
+  return <div>{parsed}</div>;
+}
 
 // ===== ASSESSMENT PROGRESS =====
 interface AssessmentProgressProps {
