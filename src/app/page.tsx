@@ -308,16 +308,97 @@ function safeParseAssessment(a: unknown): any | null {
   if (!a) return null;
   if (typeof a === "object") return a as any;
   if (typeof a !== "string") return null;
+  
+  // First try direct JSON parse
   try {
     return JSON.parse(a);
   } catch {
+    // Try cleaning code fences
     try {
       const cleaned = stripCodeFences(a);
       return JSON.parse(cleaned);
     } catch {
+      // Try parsing markdown-style format from backend
+      const parsed = parseMarkdownAssessment(a);
+      if (parsed && Object.keys(parsed).length > 0) {
+        return parsed;
+      }
       return null;
     }
   }
+}
+
+// Helper to parse markdown-formatted assessment from backend
+function parseMarkdownAssessment(text: string): any | null {
+  if (!text || typeof text !== 'string') return null;
+  
+  const result: any = {};
+  const lines = text.split('\n');
+  let currentKey = '';
+  let currentValue: any = '';
+  let inJsonBlock = false;
+  let jsonDepth = 0;
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    
+    // Check for markdown headers (### key)
+    if (trimmed.startsWith('###')) {
+      // Save previous key-value if exists
+      if (currentKey) {
+        try {
+          // Try to parse as JSON first
+          if (typeof currentValue === 'string' && (currentValue.trim().startsWith('{') || currentValue.trim().startsWith('['))) {
+            result[currentKey] = JSON.parse(currentValue.trim());
+          } else {
+            result[currentKey] = currentValue.trim();
+          }
+        } catch {
+          result[currentKey] = currentValue.trim();
+        }
+      }
+      
+      // Extract new key
+      currentKey = trimmed.replace(/^###\s*/, '').trim();
+      currentValue = '';
+      inJsonBlock = false;
+      jsonDepth = 0;
+    } else if (currentKey) {
+      // Accumulate value
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        inJsonBlock = true;
+        jsonDepth = 1;
+        currentValue = trimmed + '\n';
+      } else if (inJsonBlock) {
+        currentValue += line + '\n';
+        // Count brackets to detect end of JSON
+        for (const char of line) {
+          if (char === '{' || char === '[') jsonDepth++;
+          if (char === '}' || char === ']') jsonDepth--;
+        }
+        if (jsonDepth === 0) {
+          inJsonBlock = false;
+        }
+      } else {
+        currentValue += (currentValue ? '\n' : '') + trimmed;
+      }
+    }
+  }
+  
+  // Save last key-value pair
+  if (currentKey) {
+    try {
+      if (typeof currentValue === 'string' && (currentValue.trim().startsWith('{') || currentValue.trim().startsWith('['))) {
+        result[currentKey] = JSON.parse(currentValue.trim());
+      } else {
+        result[currentKey] = currentValue.trim();
+      }
+    } catch {
+      result[currentKey] = currentValue.trim();
+    }
+  }
+  
+  return Object.keys(result).length > 0 ? result : null;
 }
 
 // Helper function to format chunk references to readable format
@@ -1373,7 +1454,131 @@ function TechnicalAssessmentView({ assessment }: { assessment: any }) {
     );
   }
 
-  // Sjekk om data har den forventede strukturen med ja/nei på toppnivå
+  // Check if data has the markdown-parsed structure with status field
+  if (data.status && typeof data.status === 'string') {
+    // Handle markdown-parsed format from backend
+    return (
+      <div className="space-y-3">
+        <div className="text-sm">
+          <span className="font-medium text-gray-700">Status: </span>
+          <span className={
+            data.status.toLowerCase().includes('ikke') ? "text-red-700 font-medium" :
+            data.status.toLowerCase().includes('delvis') ? "text-amber-700 font-medium" :
+            "text-green-700 font-medium"
+          }>
+            {data.status}
+          </span>
+        </div>
+        
+        {data.begrunnelse_kort && (
+          <div className="text-sm mt-2">
+            <span className="font-medium text-gray-700">Begrunnelse: </span>
+            <span className="text-gray-600">{data.begrunnelse_kort}</span>
+          </div>
+        )}
+        
+        {data.metode_etterlevd && (
+          <div className="mt-3 p-3 bg-gray-50 rounded">
+            <h5 className="text-sm font-medium text-gray-700 mb-1">Metode etterlevd:</h5>
+            <div className="text-sm text-gray-600">
+              {data.metode_etterlevd.ja ? '✅ Ja' : '❌ Nei'}
+              {data.metode_etterlevd.henvisning_chunk_ids && data.metode_etterlevd.henvisning_chunk_ids.length > 0 && (
+                <span className="ml-2 text-xs">
+                  (Ref: Chunk {data.metode_etterlevd.henvisning_chunk_ids.join(", ")})
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+        
+        {data.fase_dokkrav_oppfylt && (
+          <div className="mt-3 p-3 bg-gray-50 rounded">
+            <h5 className="text-sm font-medium text-gray-700 mb-1">Fase-dokumentasjonskrav:</h5>
+            <div className="text-sm text-gray-600">
+              {data.fase_dokkrav_oppfylt.ja ? '✅ Oppfylt' : '❌ Ikke oppfylt'}
+              {data.fase_dokkrav_oppfylt.mangler && data.fase_dokkrav_oppfylt.mangler.length > 0 && (
+                <div className="mt-1">
+                  <span className="font-medium">Mangler:</span>
+                  <ul className="list-disc list-inside mt-1">
+                    {data.fase_dokkrav_oppfylt.mangler.map((m: string, i: number) => (
+                      <li key={i}>{m}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {data.fase_dokkrav_oppfylt.henvisning_chunk_ids && data.fase_dokkrav_oppfylt.henvisning_chunk_ids.length > 0 && (
+                <div className="text-xs mt-1">
+                  Referanser: Chunk {data.fase_dokkrav_oppfylt.henvisning_chunk_ids.join(", ")}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        
+        {data.kravvurdering && Array.isArray(data.kravvurdering) && data.kravvurdering.length > 0 && (
+          <div className="mt-3">
+            <h5 className="text-sm font-medium text-gray-700 mb-2">Detaljert kravvurdering:</h5>
+            <div className="space-y-2">
+              {data.kravvurdering.map((k: any, i: number) => (
+                <div key={i} className="p-2 bg-white rounded border border-gray-200">
+                  <div className="flex items-start justify-between">
+                    <div className="text-sm text-gray-700 flex-1">{k.krav}</div>
+                    <span className={`ml-2 text-xs px-2 py-1 rounded ${
+                      k.oppfylt ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    }`}>
+                      {k.oppfylt ? 'Oppfylt' : 'Ikke oppfylt'}
+                    </span>
+                  </div>
+                  {k.henvisning_chunk_ids && k.henvisning_chunk_ids.length > 0 && (
+                    <div className="text-xs text-gray-500 mt-1">
+                      Ref: Chunk {k.henvisning_chunk_ids.join(", ")}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {data.dokumentasjonsgrunnlag && Array.isArray(data.dokumentasjonsgrunnlag) && data.dokumentasjonsgrunnlag.length > 0 && (
+          <div className="mt-3">
+            <h5 className="text-sm font-medium text-gray-700 mb-2">Dokumentasjonsgrunnlag:</h5>
+            <div className="space-y-1 text-sm text-gray-600">
+              {data.dokumentasjonsgrunnlag.map((d: any, i: number) => (
+                <div key={i}>
+                  • Chunk {d.chunk_id}: {d.dekker_krav}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {data.mangler && Array.isArray(data.mangler) && data.mangler.length > 0 && (
+          <div className="mt-3 p-3 bg-red-50 rounded">
+            <h5 className="text-sm font-medium text-red-900 mb-2">Mangler:</h5>
+            <ul className="list-disc list-inside text-sm text-red-700">
+              {data.mangler.map((m: string, i: number) => (
+                <li key={i}>{m}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        
+        {data.anbefalinger && Array.isArray(data.anbefalinger) && data.anbefalinger.length > 0 && (
+          <div className="mt-3 p-3 bg-emerald-50 rounded">
+            <h5 className="text-sm font-medium text-emerald-900 mb-2">Anbefalinger:</h5>
+            <ul className="list-disc list-inside text-sm text-emerald-700">
+              {data.anbefalinger.map((a: string, i: number) => (
+                <li key={i}>{a}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  }
+  
+  // Sjekk om data har den forventede strukturen med ja/nei på toppnivå (old format)
   if (data.ja !== undefined && !data.status) {
     return (
       <div className="space-y-3">
@@ -1997,12 +2202,12 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                     {expandedSections[`criterion-${index}`] && (
                       <div className="mt-3 pt-3 border-t border-gray-100 p-4 bg-gray-50 rounded-lg">
                         {/* Show structured assessment data if available */}
-                        {criterion.kravvurdering && criterion.kravvurdering.length > 0 ? (
+                        {(criterion as any).kravvurdering && (criterion as any).kravvurdering.length > 0 ? (
                           <div className="space-y-3">
                             <div>
                               <h4 className="text-sm font-medium text-gray-700 mb-2">Detaljert kravvurdering:</h4>
                               <div className="space-y-2">
-                                {criterion.kravvurdering.map((krav: any, idx: number) => (
+                                {(criterion as any).kravvurdering.map((krav: any, idx: number) => (
                                   <div key={idx} className="flex items-start justify-between p-2 bg-white rounded border border-gray-200">
                                     <div className="text-sm text-gray-700 flex-1">{krav.krav}</div>
                                     <span className={`ml-2 text-xs px-2 py-1 rounded ${
@@ -2015,11 +2220,11 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                               </div>
                             </div>
                             
-                            {criterion.dokumentasjonsgrunnlag && criterion.dokumentasjonsgrunnlag.length > 0 && (
+                            {(criterion as any).dokumentasjonsgrunnlag && (criterion as any).dokumentasjonsgrunnlag.length > 0 && (
                               <div>
                                 <h4 className="text-sm font-medium text-gray-700 mb-2">Dokumentasjonsgrunnlag:</h4>
                                 <div className="space-y-1 text-sm text-gray-600">
-                                  {criterion.dokumentasjonsgrunnlag.map((dok: any, idx: number) => (
+                                  {(criterion as any).dokumentasjonsgrunnlag.map((dok: any, idx: number) => (
                                     <div key={idx}>
                                       • Chunk {dok.chunk_id}: {dok.dekker_krav}
                                     </div>
