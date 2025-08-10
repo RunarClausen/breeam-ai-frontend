@@ -2227,9 +2227,9 @@ const useBreeamData = () => {
       console.error('❌ Failed to load categories:', error)
       setErrors(prev => ({...prev, categories: errorMessage}))
       
-      const fallback = ['Ledelse', 'Energi', 'Transport', 'Vann', 'Materialer']
+      const fallback = ['MAN', 'ENE', 'TRA', 'WAT', 'MAT']
       setData(prev => ({...prev, categories: fallback}))
-      console.warn('⚠️ Using fallback categories:', fallback)
+      console.warn('⚠️ Using fallback categories (BREEAM codes):', fallback)
       return fallback
     } finally {
       setLoading(prev => ({...prev, categories: false}))

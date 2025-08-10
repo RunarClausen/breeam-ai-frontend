@@ -29,6 +29,42 @@ export class ApiError extends Error {
   }
 }
 
+// Category mapping between Norwegian names and BREEAM codes
+const CATEGORY_MAPPING: Record<string, string> = {
+  'Ledelse': 'MAN',
+  'Helse og innemiljø': 'HEA',
+  'Energi': 'ENE',
+  'Transport': 'TRA',
+  'Vann': 'WAT',
+  'Materialer': 'MAT',
+  'Avfall': 'WST',
+  'Arealbruk og økologi': 'LE',
+  'Forurensning': 'POL',
+  'Innovasjon': 'INN',
+  // Also support codes directly
+  'MAN': 'MAN',
+  'HEA': 'HEA',
+  'ENE': 'ENE',
+  'TRA': 'TRA',
+  'WAT': 'WAT',
+  'MAT': 'MAT',
+  'WST': 'WST',
+  'LE': 'LE',
+  'POL': 'POL',
+  'INN': 'INN'
+};
+
+// Helper function to map category to BREEAM code
+function mapCategoryToCode(category: string): string {
+  const mapped = CATEGORY_MAPPING[category];
+  if (!mapped) {
+    console.warn(`⚠️ Unknown category: ${category}, using as-is`);
+    return category;
+  }
+  console.log(`📋 Mapped category: ${category} -> ${mapped}`);
+  return mapped;
+}
+
 // Helper function for fetch with timeout
 async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number = 120000): Promise<Response> {
   const controller = new AbortController();
@@ -491,6 +527,16 @@ export const breeamApi = {
     console.log('📤 URL:', url);
     console.log('📤 Report format:', reportFormat);
     
+    // Debug log formData contents
+    console.log('📋 FormData contents:');
+    for (const [key, value] of formData.entries()) {
+      if (key === 'files') {
+        console.log(`  ${key}: ${(value as File).name} (${(value as File).size} bytes)`);
+      } else {
+        console.log(`  ${key}: ${value}`);
+      }
+    }
+    
     try {
       // Use fetchWithTimeout for better error handling (5 minutes for assessment)
       const response = await fetchWithTimeout(url, {
@@ -804,9 +850,13 @@ export const utils = {
     // Remove 'v' prefix for backend compatibility
     const cleanVersion = params.version.replace(/^v/, '');
     
+    // Map category to BREEAM code
+    const categoryCode = mapCategoryToCode(params.category);
+    console.log(`🔄 Creating assessment with category: ${params.category} -> ${categoryCode}`);
+    
     // Add all required fields
     formData.append('versjon', cleanVersion);
-    formData.append('kategori', params.category);
+    formData.append('kategori', categoryCode);
     formData.append('emne', params.topic);
     formData.append('kriterier', params.criteria.join(','));
     formData.append('privacy_consent', String(params.privacyConsent ?? true));
