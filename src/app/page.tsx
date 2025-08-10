@@ -1358,19 +1358,117 @@ function TechnicalAssessmentView({ assessment }: { assessment: any }) {
   const data = safeParseAssessment(assessment);
 
   if (!data) {
-    // Ingen gyldig JSON – vis plain text uten markdown (ikke <Markdown>)
+    // Hvis ingen gyldig JSON, vis som formatert tekst
+    if (typeof assessment === "string") {
+      return (
+        <div className="text-sm text-gray-700 whitespace-pre-wrap">
+          {stripCodeFences(assessment)}
+        </div>
+      );
+    }
     return (
       <pre className="text-xs bg-gray-50 p-3 rounded border border-gray-200 overflow-auto">
-        {typeof assessment === "string" ? stripCodeFences(assessment) : JSON.stringify(assessment, null, 2)}
+        {JSON.stringify(assessment, null, 2)}
       </pre>
     );
   }
 
+  // Sjekk om data har den forventede strukturen med ja/nei på toppnivå
+  if (data.ja !== undefined && !data.status) {
+    return (
+      <div className="space-y-3">
+        {/* Hovedvurdering */}
+        <div className="text-sm">
+          <span className="font-medium text-gray-700">Vurdering: </span>
+          <span className={data.ja ? "text-green-700 font-medium" : "text-red-700 font-medium"}>
+            {data.ja ? "Kriteriet er ivaretatt" : "Kriteriet er ikke ivaretatt"}
+          </span>
+        </div>
+        
+        {/* Dokumentreferanser */}
+        {data.henvisning_chunk_ids && data.henvisning_chunk_ids.length > 0 && (
+          <div className="text-sm">
+            <span className="font-medium text-gray-700">Dokumentreferanser: </span>
+            <span className="text-gray-600">Se chunk {data.henvisning_chunk_ids.join(", ")}</span>
+          </div>
+        )}
+
+        {/* Fase-dokumentasjonskrav */}
+        {data.fase_dokkrav_oppfylt && (
+          <div className="mt-3 p-3 bg-gray-50 rounded">
+            <h5 className="text-sm font-medium text-gray-700 mb-2">Fase-dokumentasjonskrav:</h5>
+            <div className="text-sm text-gray-600">
+              <div>Status: <span className={data.fase_dokkrav_oppfylt.ja ? "text-green-700" : "text-red-700"}>
+                {data.fase_dokkrav_oppfylt.ja ? 'Oppfylt' : 'Ikke oppfylt'}
+              </span></div>
+              {data.fase_dokkrav_oppfylt.mangler && data.fase_dokkrav_oppfylt.mangler.length > 0 && (
+                <div className="mt-2">
+                  <span className="font-medium">Mangler:</span>
+                  <ul className="list-disc list-inside mt-1">
+                    {data.fase_dokkrav_oppfylt.mangler.map((m: string, i: number) => (
+                      <li key={i}>{m}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {data.fase_dokkrav_oppfylt.henvisning_chunk_ids && data.fase_dokkrav_oppfylt.henvisning_chunk_ids.length > 0 && (
+                <div className="mt-1">
+                  Referanser: Chunk {data.fase_dokkrav_oppfylt.henvisning_chunk_ids.join(", ")}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        
+        {/* Detaljert kravvurdering */}
+        {data.kravvurdering && Array.isArray(data.kravvurdering) && data.kravvurdering.length > 0 && (
+          <div className="mt-3">
+            <h5 className="text-sm font-medium text-gray-700 mb-2">Detaljert kravvurdering:</h5>
+            <div className="space-y-2">
+              {data.kravvurdering.map((k: any, i: number) => (
+                <div key={i} className="p-2 bg-gray-50 rounded border border-gray-200">
+                  <div className="flex items-start justify-between">
+                    <div className="text-sm text-gray-700 flex-1">{k.krav}</div>
+                    <span className={`ml-2 text-xs px-2 py-1 rounded ${
+                      k.oppfylt ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    }`}>
+                      {k.oppfylt ? 'Oppfylt' : 'Ikke oppfylt'}
+                    </span>
+                  </div>
+                  {k.henvisning_chunk_ids && k.henvisning_chunk_ids.length > 0 && (
+                    <div className="text-xs text-gray-500 mt-1">
+                      Ref: Chunk {k.henvisning_chunk_ids.join(", ")}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {/* Dokumentasjonsgrunnlag */}
+        {data.dokumentasjonsgrunnlag && Array.isArray(data.dokumentasjonsgrunnlag) && data.dokumentasjonsgrunnlag.length > 0 && (
+          <div className="mt-3">
+            <h5 className="text-sm font-medium text-gray-700 mb-2">Dokumentasjonsgrunnlag:</h5>
+            <div className="space-y-1 text-sm text-gray-600">
+              {data.dokumentasjonsgrunnlag.map((d: any, i: number) => (
+                <div key={i}>
+                  • Chunk {d.chunk_id}: {d.dekker_krav}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Original visning for andre formater
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <span className="text-sm font-semibold text-gray-700">Status:</span>
-        <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-800 text-sm">{data.status}</span>
+        <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-800 text-sm">{data.status || 'Ukjent'}</span>
       </div>
 
       {data.begrunnelse_kort && (
@@ -1898,9 +1996,43 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                     {/* Expanded details section */}
                     {expandedSections[`criterion-${index}`] && (
                       <div className="mt-3 pt-3 border-t border-gray-100 p-4 bg-gray-50 rounded-lg">
-                        <p className="text-sm text-gray-700">
-                          Detaljert vurdering tilgjengelig i nedlastet rapport.
-                        </p>
+                        {/* Show structured assessment data if available */}
+                        {criterion.kravvurdering && criterion.kravvurdering.length > 0 ? (
+                          <div className="space-y-3">
+                            <div>
+                              <h4 className="text-sm font-medium text-gray-700 mb-2">Detaljert kravvurdering:</h4>
+                              <div className="space-y-2">
+                                {criterion.kravvurdering.map((krav: any, idx: number) => (
+                                  <div key={idx} className="flex items-start justify-between p-2 bg-white rounded border border-gray-200">
+                                    <div className="text-sm text-gray-700 flex-1">{krav.krav}</div>
+                                    <span className={`ml-2 text-xs px-2 py-1 rounded ${
+                                      krav.oppfylt ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                    }`}>
+                                      {krav.oppfylt ? 'Oppfylt' : 'Ikke oppfylt'}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            
+                            {criterion.dokumentasjonsgrunnlag && criterion.dokumentasjonsgrunnlag.length > 0 && (
+                              <div>
+                                <h4 className="text-sm font-medium text-gray-700 mb-2">Dokumentasjonsgrunnlag:</h4>
+                                <div className="space-y-1 text-sm text-gray-600">
+                                  {criterion.dokumentasjonsgrunnlag.map((dok: any, idx: number) => (
+                                    <div key={idx}>
+                                      • Chunk {dok.chunk_id}: {dok.dekker_krav}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-700">
+                            Detaljert vurdering tilgjengelig i nedlastet rapport.
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1960,31 +2092,13 @@ const EnhancedAssessmentResults = ({ results, onNewAssessment, isAssessing = fal
                     
                     {expandedSections[`criterion-${index}`] && (
                       <div className="mt-3 pt-3 border-t border-gray-100 p-4 bg-gray-50 rounded-lg">
-                        {assessmentData?.kravvurdering && assessmentData.kravvurdering.length > 0 && (
-                          <div className="mb-4">
-                            <h4 className="font-medium text-gray-700 mb-2">Kravvurdering:</h4>
-                            {assessmentData.kravvurdering.map((item: any, idx: number) => (
-                              <div key={idx} className="mb-1">
-                                <p className="text-sm">{item.krav}: {item.oppfylt ? 'Oppfylt' : 'Ikke oppfylt'}</p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        
-                        {assessmentData?.dokumentasjonsgrunnlag && assessmentData.dokumentasjonsgrunnlag.length > 0 && (
-                          <div>
-                            <h4 className="font-medium text-gray-700 mb-2">Dokumentasjonsgrunnlag:</h4>
-                            {assessmentData.dokumentasjonsgrunnlag.map((doc: any, idx: number) => (
-                              <div key={idx} className="mb-1">
-                                <p className="text-sm">{doc.dekker_krav}</p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        
-                        {(!assessmentData?.kravvurdering || assessmentData.kravvurdering.length === 0) && 
-                         (!assessmentData?.dokumentasjonsgrunnlag || assessmentData.dokumentasjonsgrunnlag.length === 0) && (
-                          <TechnicalAssessmentView assessment={ca.assessment} />
+                        {assessmentData && typeof assessmentData === 'object' ? (
+                          <TechnicalAssessmentView assessment={assessmentData} />
+                        ) : (
+                          <p className="text-sm text-gray-700">
+                            {typeof ca.assessment === 'string' ? ca.assessment : 
+                             'Detaljert vurdering tilgjengelig i nedlastet rapport.'}
+                          </p>
                         )}
                       </div>
                     )}
